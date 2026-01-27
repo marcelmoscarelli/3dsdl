@@ -2,16 +2,24 @@
 #include <stdio.h>   // fprintf, stderr
 #include <stdlib.h>  // EXIT_FAILURE, EXIT_SUCCESS
 #include <stdbool.h> // bool type
+#include <math.h>    // tanf
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
-// Macros for window dimensions and frame rate
+// Global consts for window dimensions and frame rate
 static const int WIDTH = 1000;
 static const int HEIGHT = 1000;
-static const int TARGET_FPS = 120;
+static const int TARGET_FPS = 60;
 static const Uint32 FRAME_DELAY = (1000u / TARGET_FPS);
+
+// Global constants for camera
+static const float ASPECT_RATIO = (float)WIDTH / (float)HEIGHT;
+static const float FOV_STEP = 1.0f;
+static const float FOV_MIN = 30.0f;
+static const float FOV_MAX = 120.0f;
+float camera_f = -0.15611995216165922; // Initial focal length (FOV=60 degrees)
 
 // Global variables for SDL window and renderer
 static SDL_Window* window = NULL;
@@ -59,8 +67,8 @@ int main(int argc, char** argv) {
     const int GRID_W = 5;
     const int GRID_H = 5;
     const float CUBE_SIZE = 1.5f;
-    const float SPACING = 1.0f; // space between cubes
-    const float DEPTH_Z = 10.0f; // place all cubes at z = 10
+    const float SPACING = 1.0f;
+    const float DEPTH_Z = 15.0f;
 
     CubeArray cube_arr = {.size = 0};
     const int total = GRID_W * GRID_H;
@@ -82,15 +90,69 @@ int main(int argc, char** argv) {
         cube_arr.size++;
     }
 
+    // Camera parameters
+    float fov = 60.0f;                      // Field of view in degrees
+    float fov_rad = fov * (M_PI / 180.0f);  // Convert to radians
+    camera_f = 1.0f / tanf(fov_rad * 0.5f); // Focal length of the camera
+
     // Main loop
     bool running = true;
     SDL_Event event;
     while (running) {
         Uint32 frame_start = SDL_GetTicks();
 
+        // Event handling
         while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_QUIT) {
-                running = false;
+            switch (event.type) {
+                case SDL_QUIT:
+                    running = false;
+                    break;
+                case SDL_MOUSEWHEEL: // Adjust FOV with mouse wheel
+                    if (event.wheel.y > 0) {
+                        fov -= FOV_STEP;
+                    } else if (event.wheel.y < 0) {
+                        fov += FOV_STEP;
+                    }
+                    if (fov < FOV_MIN) fov = FOV_MIN;
+                    if (fov > FOV_MAX) fov = FOV_MAX;
+                    printf("FOV: %f degrees\n", fov);
+                    fov_rad = fov * (M_PI / 180.0f);
+                    camera_f = 1.0f / tanf(fov_rad * 0.5f);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        // WASD controls for moving camera
+        const Uint8* keystate = SDL_GetKeyboardState(NULL);
+        float camera_speed = 0.1f;
+        if (keystate[SDL_SCANCODE_W]) {
+            for (size_t ci = 0; ci < cube_arr.size; ++ci) {
+                for (size_t pi = 0; pi < 8; ++pi) {
+                    cube_arr.arr[ci].points[pi].y -= camera_speed;
+                }
+            }
+        }
+        if (keystate[SDL_SCANCODE_S]) {
+            for (size_t ci = 0; ci < cube_arr.size; ++ci) {
+                for (size_t pi = 0; pi < 8; ++pi) {
+                    cube_arr.arr[ci].points[pi].y += camera_speed;
+                }
+            }
+        }
+        if (keystate[SDL_SCANCODE_A]) {
+            for (size_t ci = 0; ci < cube_arr.size; ++ci) {
+                for (size_t pi = 0; pi < 8; ++pi) {
+                    cube_arr.arr[ci].points[pi].x += camera_speed;
+                }
+            }
+        }
+        if (keystate[SDL_SCANCODE_D]) {
+            for (size_t ci = 0; ci < cube_arr.size; ++ci) {
+                for (size_t pi = 0; pi < 8; ++pi) {
+                    cube_arr.arr[ci].points[pi].x -= camera_speed;
+                }
             }
         }
 
@@ -166,28 +228,28 @@ void draw_cube(const Cube* cube) {
         fprintf(stderr, "draw_cube(): NULL cube pointer. Exiting!\n");
         exit(EXIT_FAILURE);
     }
-
+    
     Point2D projected[8];
+    bool skip_point[8] = { false };
     for (size_t i = 0; i < 8; ++i) {
         // Simple perspective projection
-        if (cube->points[i].z <= 0) continue; // Avoid division by zero or negative z
-        float x = cube->points[i].x / cube->points[i].z;
-        float y = cube->points[i].y / cube->points[i].z;
-
-        // Convert to screen coordinates
-        projected[i].x = (int)SDL_roundf((x + 1.0f) * 0.5f * WIDTH);
-        projected[i].y = (int)SDL_roundf((1.0f - (y + 1.0f) * 0.5f) * HEIGHT);
+        if (cube->points[i].z <= 0) { // Avoid division by zero or negative z
+            skip_point[i] = true;
+            continue; 
+        }
+        float x_ndc = (cube->points[i].x * camera_f / ASPECT_RATIO) / cube->points[i].z;
+        float y_ndc = (cube->points[i].y * camera_f) / cube->points[i].z;
+        projected[i].x = (int)SDL_roundf((x_ndc + 1.0f) * 0.5f * WIDTH);
+        projected[i].y = (int)SDL_roundf((1.0f - (y_ndc + 1.0f) * 0.5f) * HEIGHT);
     }
 
     for (size_t i = 0; i < 4; ++i) {
+        if (skip_point[i]) continue; // TODO: handle clipping properly
         int next_i = (i + 1) % 4;
-
         // Front face
         SDL_RenderDrawLine(renderer, (int)projected[i].x, (int)projected[i].y, (int)projected[next_i].x, (int)projected[next_i].y);
-        
         // Back face
         SDL_RenderDrawLine(renderer, (int)projected[i + 4].x, (int)projected[i + 4].y, (int)projected[next_i + 4].x, (int)projected[next_i + 4].y);
-        
         // Connect front and back faces
         SDL_RenderDrawLine(renderer, (int)projected[i].x, (int)projected[i].y, (int)projected[i + 4].x, (int)projected[i + 4].y);
     }
