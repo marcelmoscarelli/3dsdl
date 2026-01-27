@@ -1,0 +1,13 @@
+# outputs
+*.exe
+*.o
+*.obj
+
+# binaries
+*.dll
+
+# junk
+.vscode/
+*.swp
+*.tmp
+
