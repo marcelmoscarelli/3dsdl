@@ -25,7 +25,7 @@ typedef struct {
 } Cube;
 
 typedef struct {
-    Cube arr[100];
+    Cube arr[10000];
     size_t size;
 } CubeArray;
 
@@ -51,7 +51,8 @@ static const float FOV_MAX = 120.0f;
 static const float PITCH_MAX = 89.0f;
 static const float PITCH_MIN = -89.0f;
 float camera_f = -0.15611995216165922; // Initial focal length (FOV=60 degrees)
-Camera camera_pos = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+Camera camera_pos = {0.0f, 2.0f, 0.0f, 0.0f, 0.0f};
+bool allow_flying = false; // when false, W/S move along ground (XZ plane)
 
 // Global variables for SDL window and renderer
 static SDL_Window* window = NULL;
@@ -79,9 +80,9 @@ int main(int argc, char** argv) {
     const int GRID_H = 5;
     const float CUBE_SIZE = 1.5f;
     const float SPACING = 1.0f;
-    const float DEPTH_Z = 15.0f;
+    const float DEPTH_Z = 12.5f;
 
-    CubeArray cube_arr = {.size = 0};
+    CubeArray cube_wall = {.size = 0};
     const int total = GRID_W * GRID_H;
     for (int i = 0; i < total; ++i) {
         int gx = i % GRID_W;
@@ -89,16 +90,46 @@ int main(int argc, char** argv) {
 
         float step = CUBE_SIZE + SPACING; // center-to-center distance
         float offset_x = ((GRID_W - 1) * step) / 2.0f;
-        float offset_y = ((GRID_H - 1) * step) / 2.0f;
+        float half_size = CUBE_SIZE / 2.0f;
 
+        // Keep grid centered in X, but place wall above ground (y=0).
+        // Set the lowest cube's bottom at y=0 => its center at half_size.
         Point3D center = {
             .x = gx * step - offset_x,
-            .y = gy * step - offset_y,
+            .y = gy * step + half_size + SPACING,
             .z = DEPTH_Z
         };
 
-        make_cube(&cube_arr.arr[cube_arr.size], CUBE_SIZE, center);
-        cube_arr.size++;
+        make_cube(&cube_wall.arr[cube_wall.size], CUBE_SIZE, center);
+        cube_wall.size++;
+    }
+    
+    // Ground grid parameters (100x100, cubes glued together, size 0.25)
+    const int GROUND_W = 75;
+    const int GROUND_H = 75;
+    const float GROUND_CUBE_SIZE = 0.5f;
+    const float GROUND_SPACING = 0.0f; // glued
+
+    CubeArray cube_ground = {.size = 0};
+    const int ground_total = GROUND_W * GROUND_H;
+    for (int i = 0; i < ground_total; ++i) {
+        int gx = i % GROUND_W;
+        int gz = i / GROUND_W;
+
+        float step = GROUND_CUBE_SIZE + GROUND_SPACING; // center-to-center distance
+        float offset_x = ((GROUND_W - 1) * step) / 2.0f;
+        float offset_z = ((GROUND_H - 1) * step) / 2.0f;
+        float half_size = GROUND_CUBE_SIZE / 2.0f;
+
+        // Centered in X and Z, Y is half-size below origin (-0.25)
+        Point3D center = {
+            .x = gx * step - offset_x,
+            .y = -half_size,
+            .z = gz * step - offset_z
+        };
+
+        make_cube(&cube_ground.arr[cube_ground.size], GROUND_CUBE_SIZE, center);
+        cube_ground.size++;
     }
 
     // Camera parameters
@@ -109,9 +140,17 @@ int main(int argc, char** argv) {
     SDL_SetRelativeMouseMode(SDL_TRUE);
     SDL_ShowCursor(SDL_DISABLE);
 
+    // Jump parameters
+    bool is_jumping = false;
+    float jump_time = 0.0f;
+    const float jump_dur = 0.6f; // seconds
+    const float jump_height = 2.0f;
+    float ground_y = camera_pos.y;
+
     // Main loop
     bool running = true;
     SDL_Event event;
+    Uint32 last_ticks = SDL_GetTicks();
     while (running) {
         Uint32 frame_start = SDL_GetTicks();
 
@@ -137,6 +176,7 @@ int main(int argc, char** argv) {
                     // Update camera orientation from mouse movement
                     const float mouse_sens = 0.1f; // degrees per pixel
                     camera_pos.yaw += event.motion.xrel * mouse_sens;
+                    // Standard Y (not inverted): moving mouse up decreases yrel, so add it
                     camera_pos.pitch += event.motion.yrel * mouse_sens;
                     if (camera_pos.pitch > PITCH_MAX) camera_pos.pitch = PITCH_MAX;
                     if (camera_pos.pitch < PITCH_MIN) camera_pos.pitch = PITCH_MIN;
@@ -147,38 +187,112 @@ int main(int argc, char** argv) {
             }
         }
 
-        // WASD controls now move the camera (first-person)
+        // WASD controls now move the camera relative to view (crosshair)
+        Uint32 now = SDL_GetTicks();
+        float dt = (now - last_ticks) / 1000.0f;
+        last_ticks = now;
+
         const Uint8* keystate = SDL_GetKeyboardState(NULL);
-        float camera_step = 0.15f;
-        // W = forward (toward +z), S = backward
-        if (keystate[SDL_SCANCODE_W]) {
-            camera_pos.z += camera_step;
+        const float move_speed = 5.0f; // units per second
+        float camera_step = move_speed * dt;
+
+        // Build forward vector from yaw/pitch
+        float yaw_rad = camera_pos.yaw * (M_PI / 180.0f);
+        float pitch_rad = camera_pos.pitch * (M_PI / 180.0f);
+        float fx = cosf(pitch_rad) * sinf(yaw_rad);
+        float fy = -sinf(pitch_rad);
+        float fz = cosf(pitch_rad) * cosf(yaw_rad);
+        // normalize forward
+        float flen = sqrtf(fx*fx + fy*fy + fz*fz);
+        if (flen > 0.000001f) { fx /= flen; fy /= flen; fz /= flen; }
+
+        // right = normalize(cross(up, forward)) ; up = (0,1,0)
+        // using cross(up, forward) because of coordinate handedness so strafing matches view
+        float rx = fz;
+        //float ry = 0.0f;
+        float rz = -fx;
+        float rlen = sqrtf(rx*rx + rz*rz);
+        if (rlen > 0.000001f) { rx /= rlen; rz /= rlen; } else { rx = 1.0f; rz = 0.0f; }
+
+        if (allow_flying) {
+            if (keystate[SDL_SCANCODE_W]) {
+                camera_pos.x += fx * camera_step;
+                camera_pos.y += fy * camera_step;
+                camera_pos.z += fz * camera_step;
+            }
+            if (keystate[SDL_SCANCODE_S]) {
+                camera_pos.x -= fx * camera_step;
+                camera_pos.y -= fy * camera_step;
+                camera_pos.z -= fz * camera_step;
+            }
+            if (keystate[SDL_SCANCODE_A]) {
+                camera_pos.x -= rx * camera_step;
+                camera_pos.z -= rz * camera_step;
+            }
+            if (keystate[SDL_SCANCODE_D]) {
+                camera_pos.x += rx * camera_step;
+                camera_pos.z += rz * camera_step;
+            }
+            if (keystate[SDL_SCANCODE_SPACE]) {
+                camera_pos.y += camera_step;
+            }
+        } else {
+            // ground-constrained movement: ignore forward.y
+            float gx = fx;
+            float gz = fz;
+            float glen = sqrtf(gx*gx + gz*gz);
+            if (glen > 0.000001f) { gx /= glen; gz /= glen; } else { gx = 0.0f; gz = 1.0f; }
+
+            if (keystate[SDL_SCANCODE_W]) {
+                camera_pos.x += gx * camera_step;
+                camera_pos.z += gz * camera_step;
+            }
+            if (keystate[SDL_SCANCODE_S]) {
+                camera_pos.x -= gx * camera_step;
+                camera_pos.z -= gz * camera_step;
+            }
+            if (keystate[SDL_SCANCODE_A]) {
+                camera_pos.x -= rx * camera_step;
+                camera_pos.z -= rz * camera_step;
+            }
+            if (keystate[SDL_SCANCODE_D]) {
+                camera_pos.x += rx * camera_step;
+                camera_pos.z += rz * camera_step;
+            }
+            if (keystate[SDL_SCANCODE_SPACE] && !is_jumping) { // Jump
+                is_jumping = true;
+                jump_time = 0.0f;
+                ground_y = camera_pos.y;
+            }
         }
-        if (keystate[SDL_SCANCODE_S]) {
-            camera_pos.z -= camera_step;
+
+        // Jumping logic
+        if (is_jumping) {
+            jump_time += dt;
+            float t = jump_time / jump_dur;
+            if (t >= 1.0f) { camera_pos.y = ground_y; is_jumping = false; }
+            else {
+                camera_pos.y = ground_y + jump_height * sinf(M_PI * t);
+            }
         }
-        // A = left, D = right
-        if (keystate[SDL_SCANCODE_A]) {
-            camera_pos.x -= camera_step;
-        }
-        if (keystate[SDL_SCANCODE_D]) {
-            camera_pos.x += camera_step;
-        }
-        // Q = up, E = down
-        if (keystate[SDL_SCANCODE_Q]) {
-            camera_pos.y += camera_step;
-        }
-        if (keystate[SDL_SCANCODE_E]) {
-            camera_pos.y -= camera_step;
-        }
+
+        // Q = up, E = down (keep as direct Y movement)
+        if (keystate[SDL_SCANCODE_Q]) camera_pos.y += camera_step;
+        if (keystate[SDL_SCANCODE_E]) camera_pos.y -= camera_step;
 
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         SDL_RenderClear(renderer);
 
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
         // Draw all cubes in the array
-        for (size_t ci = 0; ci < cube_arr.size; ++ci) {
-            draw_cube(&cube_arr.arr[ci]);
+        for (size_t ci = 0; ci < cube_wall.size; ++ci) {
+            draw_cube(&cube_wall.arr[ci]);
+        }
+
+        SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
+        // Draw all cubes in the array
+        for (size_t ci = 0; ci < cube_ground.size; ++ci) {
+            draw_cube(&cube_ground.arr[ci]);
         }
 
         // Draw static crosshair in the center of the screen
