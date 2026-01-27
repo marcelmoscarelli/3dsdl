@@ -8,23 +8,6 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-// Global consts for window dimensions and frame rate
-static const int WIDTH = 1000;
-static const int HEIGHT = 1000;
-static const int TARGET_FPS = 60;
-static const Uint32 FRAME_DELAY = (1000u / TARGET_FPS);
-
-// Global constants for camera
-static const float ASPECT_RATIO = (float)WIDTH / (float)HEIGHT;
-static const float FOV_STEP = 1.0f;
-static const float FOV_MIN = 30.0f;
-static const float FOV_MAX = 120.0f;
-float camera_f = -0.15611995216165922; // Initial focal length (FOV=60 degrees)
-
-// Global variables for SDL window and renderer
-static SDL_Window* window = NULL;
-static SDL_Renderer* renderer = NULL;
-
 // Data structures
 typedef struct {
     float x;
@@ -45,6 +28,34 @@ typedef struct {
     Cube arr[100];
     size_t size;
 } CubeArray;
+
+typedef struct {
+    float x;
+    float y;
+    float z;
+    float yaw;
+    float pitch;
+} Camera;
+
+// Global consts for window dimensions and frame rate
+static const int WIDTH = 1000;
+static const int HEIGHT = 1000;
+static const int TARGET_FPS = 60;
+static const Uint32 FRAME_DELAY = (1000u / TARGET_FPS);
+
+// Global for camera
+static const float ASPECT_RATIO = (float)WIDTH / (float)HEIGHT;
+static const float FOV_STEP = 1.0f;
+static const float FOV_MIN = 30.0f;
+static const float FOV_MAX = 120.0f;
+static const float PITCH_MAX = 89.0f;
+static const float PITCH_MIN = -89.0f;
+float camera_f = -0.15611995216165922; // Initial focal length (FOV=60 degrees)
+Camera camera_pos = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+
+// Global variables for SDL window and renderer
+static SDL_Window* window = NULL;
+static SDL_Renderer* renderer = NULL;
 
 // Function prototypes
 bool init();
@@ -94,6 +105,9 @@ int main(int argc, char** argv) {
     float fov = 60.0f;                      // Field of view in degrees
     float fov_rad = fov * (M_PI / 180.0f);  // Convert to radians
     camera_f = 1.0f / tanf(fov_rad * 0.5f); // Focal length of the camera
+    // Enable relative mouse mode for FPS-style look
+    SDL_SetRelativeMouseMode(SDL_TRUE);
+    SDL_ShowCursor(SDL_DISABLE);
 
     // Main loop
     bool running = true;
@@ -119,41 +133,43 @@ int main(int argc, char** argv) {
                     fov_rad = fov * (M_PI / 180.0f);
                     camera_f = 1.0f / tanf(fov_rad * 0.5f);
                     break;
+                case SDL_MOUSEMOTION: {
+                    // Update camera orientation from mouse movement
+                    const float mouse_sens = 0.1f; // degrees per pixel
+                    camera_pos.yaw += event.motion.xrel * mouse_sens;
+                    camera_pos.pitch += event.motion.yrel * mouse_sens;
+                    if (camera_pos.pitch > PITCH_MAX) camera_pos.pitch = PITCH_MAX;
+                    if (camera_pos.pitch < PITCH_MIN) camera_pos.pitch = PITCH_MIN;
+                    break;
+                }
                 default:
                     break;
             }
         }
 
-        // WASD controls for moving camera
+        // WASD controls now move the camera (first-person)
         const Uint8* keystate = SDL_GetKeyboardState(NULL);
-        float camera_speed = 0.1f;
+        float camera_step = 0.15f;
+        // W = forward (toward +z), S = backward
         if (keystate[SDL_SCANCODE_W]) {
-            for (size_t ci = 0; ci < cube_arr.size; ++ci) {
-                for (size_t pi = 0; pi < 8; ++pi) {
-                    cube_arr.arr[ci].points[pi].y -= camera_speed;
-                }
-            }
+            camera_pos.z += camera_step;
         }
         if (keystate[SDL_SCANCODE_S]) {
-            for (size_t ci = 0; ci < cube_arr.size; ++ci) {
-                for (size_t pi = 0; pi < 8; ++pi) {
-                    cube_arr.arr[ci].points[pi].y += camera_speed;
-                }
-            }
+            camera_pos.z -= camera_step;
         }
+        // A = left, D = right
         if (keystate[SDL_SCANCODE_A]) {
-            for (size_t ci = 0; ci < cube_arr.size; ++ci) {
-                for (size_t pi = 0; pi < 8; ++pi) {
-                    cube_arr.arr[ci].points[pi].x += camera_speed;
-                }
-            }
+            camera_pos.x -= camera_step;
         }
         if (keystate[SDL_SCANCODE_D]) {
-            for (size_t ci = 0; ci < cube_arr.size; ++ci) {
-                for (size_t pi = 0; pi < 8; ++pi) {
-                    cube_arr.arr[ci].points[pi].x -= camera_speed;
-                }
-            }
+            camera_pos.x += camera_step;
+        }
+        // Q = up, E = down
+        if (keystate[SDL_SCANCODE_Q]) {
+            camera_pos.y += camera_step;
+        }
+        if (keystate[SDL_SCANCODE_E]) {
+            camera_pos.y -= camera_step;
         }
 
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
@@ -164,6 +180,14 @@ int main(int argc, char** argv) {
         for (size_t ci = 0; ci < cube_arr.size; ++ci) {
             draw_cube(&cube_arr.arr[ci]);
         }
+
+        // Draw static crosshair in the center of the screen
+        int cx = WIDTH / 2;
+        int cy = HEIGHT / 2;
+        int half = 8; // crosshair half-length
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+        SDL_RenderDrawLine(renderer, cx - half, cy, cx + half, cy);
+        SDL_RenderDrawLine(renderer, cx, cy - half, cx, cy + half);
 
         SDL_RenderPresent(renderer);
 
@@ -231,26 +255,57 @@ void draw_cube(const Cube* cube) {
     
     Point2D projected[8];
     bool skip_point[8] = { false };
+    // Initialize projected points to safe defaults
     for (size_t i = 0; i < 8; ++i) {
-        // Simple perspective projection
-        if (cube->points[i].z <= 0) { // Avoid division by zero or negative z
+        projected[i].x = 0;
+        projected[i].y = 0;
+    }
+    // Precompute camera rotation
+    float yaw_rad = camera_pos.yaw * (M_PI / 180.0f);
+    float pitch_rad = camera_pos.pitch * (M_PI / 180.0f);
+    float cos_yaw = cosf(yaw_rad);
+    float sin_yaw = sinf(yaw_rad);
+    float cos_pitch = cosf(pitch_rad);
+    float sin_pitch = sinf(pitch_rad);
+
+    for (size_t i = 0; i < 8; ++i) {
+        // World -> camera space: translate then rotate by inverse camera yaw/pitch
+        float rel_x = cube->points[i].x - camera_pos.x;
+        float rel_y = cube->points[i].y - camera_pos.y;
+        float rel_z = cube->points[i].z - camera_pos.z;
+
+        // Apply inverse yaw rotation (rotate by -yaw)
+        float x1 =  cos_yaw * rel_x - sin_yaw * rel_z;
+        float z1 =  sin_yaw * rel_x + cos_yaw * rel_z;
+
+        // Apply inverse pitch rotation (rotate by -pitch)
+        float y2 =  cos_pitch * rel_y + sin_pitch * z1;
+        float z2 = -sin_pitch * rel_y + cos_pitch * z1;
+
+        if (z2 <= 0) { // Behind camera
             skip_point[i] = true;
-            continue; 
+            continue;
         }
-        float x_ndc = (cube->points[i].x * camera_f / ASPECT_RATIO) / cube->points[i].z;
-        float y_ndc = (cube->points[i].y * camera_f) / cube->points[i].z;
+
+        float x_ndc = (x1 * camera_f / ASPECT_RATIO) / z2;
+        float y_ndc = (y2 * camera_f) / z2;
         projected[i].x = (int)SDL_roundf((x_ndc + 1.0f) * 0.5f * WIDTH);
         projected[i].y = (int)SDL_roundf((1.0f - (y_ndc + 1.0f) * 0.5f) * HEIGHT);
     }
 
     for (size_t i = 0; i < 4; ++i) {
-        if (skip_point[i]) continue; // TODO: handle clipping properly
         int next_i = (i + 1) % 4;
-        // Front face
-        SDL_RenderDrawLine(renderer, (int)projected[i].x, (int)projected[i].y, (int)projected[next_i].x, (int)projected[next_i].y);
+        // Front face: draw only if both endpoints are in front of camera
+        if (!skip_point[i] && !skip_point[next_i]) {
+            SDL_RenderDrawLine(renderer, (int)projected[i].x, (int)projected[i].y, (int)projected[next_i].x, (int)projected[next_i].y);
+        }
         // Back face
-        SDL_RenderDrawLine(renderer, (int)projected[i + 4].x, (int)projected[i + 4].y, (int)projected[next_i + 4].x, (int)projected[next_i + 4].y);
+        if (!skip_point[i + 4] && !skip_point[next_i + 4]) {
+            SDL_RenderDrawLine(renderer, (int)projected[i + 4].x, (int)projected[i + 4].y, (int)projected[next_i + 4].x, (int)projected[next_i + 4].y);
+        }
         // Connect front and back faces
-        SDL_RenderDrawLine(renderer, (int)projected[i].x, (int)projected[i].y, (int)projected[i + 4].x, (int)projected[i + 4].y);
+        if (!skip_point[i] && !skip_point[i + 4]) {
+            SDL_RenderDrawLine(renderer, (int)projected[i].x, (int)projected[i].y, (int)projected[i + 4].x, (int)projected[i + 4].y);
+        }
     }
 }
