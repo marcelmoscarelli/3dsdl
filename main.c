@@ -1,4 +1,5 @@
 #include <SDL2/SDL.h>
+#include <SDL_ttf.h>
 #include <stdio.h>   // fprintf, stderr
 #include <stdlib.h>  // exit, EXIT_FAILURE, EXIT_SUCCESS, rand, srand
 #include <time.h>    // time
@@ -41,7 +42,7 @@ typedef struct {
 // Global consts for window dimensions and frame rate
 static const int WIDTH = 1000;
 static const int HEIGHT = 1000;
-static const int TARGET_FPS = 240;
+static const int TARGET_FPS = 60;
 static const Uint32 FRAME_DELAY = (1000u / TARGET_FPS);
 
 // Global for camera
@@ -54,9 +55,10 @@ static const float PITCH_MIN = -89.0f;
 float camera_f = -0.15611995216165922; // Initial focal length (FOV=60 degrees)
 Camera camera_pos = {0.0f, 2.0f, 0.0f, 0.0f, 0.0f};
 
-// Global variables for SDL window and renderer
+// Global variables for SDL
 static SDL_Window* window = NULL;
 static SDL_Renderer* renderer = NULL;
+static TTF_Font* font = NULL;
 
 // Function prototypes
 bool init();
@@ -170,7 +172,7 @@ int main(int argc, char** argv) {
     float fall_mom_x = 0.0f;
     float fall_mom_z = 0.0f;
     const float GRAVITY = 30.0f; // units/s^2 (gamey)
-    const float FALL_RESET_DISTANCE = 350.0f; // units to trigger reset
+    const float FALL_RESET_DISTANCE = 250.0f; // units to trigger reset
 
     // Make rotation vectors
     Point3D rotation_vectors[1000];
@@ -185,6 +187,10 @@ int main(int argc, char** argv) {
     bool running = true;
     SDL_Event event;
     Uint32 last_ticks = SDL_GetTicks();
+    // Stats text texture cache to avoid TTF overhead every frame
+    SDL_Texture* stats_texture = NULL;
+    SDL_Rect stats_rect = { 15, 15, 0, 0 };
+    int stats_frame_count = 0;
     while (running) {
         Uint32 frame_start = SDL_GetTicks();
 
@@ -417,6 +423,43 @@ int main(int argc, char** argv) {
         SDL_RenderDrawLine(renderer, cx - half, cy, cx + half, cy);
         SDL_RenderDrawLine(renderer, cx, cy - half, cx, cy + half);
 
+        // Show stats in the top-left corner (update only every 5 frames)
+        stats_frame_count++;
+        if (stats_texture == NULL || (stats_frame_count % 5) == 0) {
+            char stats_text[256];
+            snprintf(stats_text, sizeof(stats_text),
+                     "FPS: %d\nPos.: (x:%.2f, y:%.2f, z:%.2f)\nYaw: %.1f Pitch: %.1f\nFOV: %.1f degrees",
+                     (int)(1.0f / dt),
+                     camera_pos.x, camera_pos.y, camera_pos.z,
+                     camera_pos.yaw, camera_pos.pitch,
+                     fov
+            );
+            SDL_Color text_color = { 255, 255, 255, 255 };
+            SDL_Surface* text_surface = TTF_RenderText_Blended_Wrapped(font, stats_text, text_color, 350);
+            if (text_surface) {
+                // replace previous texture
+                if (stats_texture) SDL_DestroyTexture(stats_texture);
+                stats_texture = SDL_CreateTextureFromSurface(renderer, text_surface);
+                if (stats_texture) {
+                    SDL_SetTextureBlendMode(stats_texture, SDL_BLENDMODE_BLEND);
+                }
+                stats_rect.w = text_surface->w;
+                stats_rect.h = text_surface->h;
+                SDL_FreeSurface(text_surface);
+            }
+        }
+        if (stats_texture) {
+            // draw semi-transparent black background box behind the stats text
+            SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+            SDL_Color bg_col = { 0, 0, 0, 96 };
+            SDL_SetRenderDrawColor(renderer, bg_col.r, bg_col.g, bg_col.b, bg_col.a);
+            SDL_Rect bg_rect = { stats_rect.x - 8, stats_rect.y - 8, stats_rect.w + 16, stats_rect.h + 16 };
+            SDL_RenderFillRect(renderer, &bg_rect);
+
+            SDL_RenderCopy(renderer, stats_texture, NULL, &stats_rect);
+        }
+
+        // Render present
         SDL_RenderPresent(renderer);
 
         // restore camera Y after rendering
@@ -428,6 +471,8 @@ int main(int argc, char** argv) {
         }
     }
 
+    TTF_CloseFont(font);
+    TTF_Quit();
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
@@ -450,6 +495,23 @@ bool init() {
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     if (!renderer) {
         fprintf(stderr, "SDL_CreateRenderer Error: %s\n", SDL_GetError());
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return false;
+    }
+
+    if (TTF_Init() != 0) {
+        fprintf(stderr, "TTF_Init Error: %s\n", TTF_GetError());
+        SDL_DestroyRenderer(renderer);
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return false;
+    }
+
+    font = TTF_OpenFont("assets/Consolas-Regular.ttf", 16);
+    if (!font) {
+        fprintf(stderr, "TTF_OpenFont Error: %s\n", TTF_GetError());
+        SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
         SDL_Quit();
         return false;
