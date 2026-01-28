@@ -132,6 +132,16 @@ int main(int argc, char** argv) {
         cube_ground.size++;
     }
 
+    // Compute ground bounds (world space) so we can detect falling off edges
+    float ground_step = GROUND_CUBE_SIZE + GROUND_SPACING;
+    float ground_offset_x = ((GROUND_W - 1) * ground_step) / 2.0f;
+    float ground_offset_z = ((GROUND_H - 1) * ground_step) / 2.0f;
+    float ground_half = GROUND_CUBE_SIZE / 2.0f;
+    const float GROUND_MIN_X = -ground_offset_x - ground_half;
+    const float GROUND_MAX_X =  ground_offset_x + ground_half;
+    const float GROUND_MIN_Z = -ground_offset_z - ground_half;
+    const float GROUND_MAX_Z =  ground_offset_z + ground_half;
+
     // Camera parameters
     float fov = 60.0f;                      // Field of view in degrees
     float fov_rad = fov * (M_PI / 180.0f);  // Convert to radians
@@ -146,6 +156,21 @@ int main(int argc, char** argv) {
     const float jump_dur = 0.6f; // seconds
     const float jump_height = 2.0f;
     float ground_y = camera_pos.y;
+
+    // Walking (bob) parameters
+    float walk_phase = 0.0f;
+    float walk_amp = 0.0f; // current amplitude
+    const float WALK_AMPLITUDE = 0.15f; // meters
+    const float WALK_FREQUENCY = 3.0f; // steps per second
+    const float WALK_SMOOTH = 8.0f; // smoothing rate
+    // Falling / gravity
+    bool is_falling = false;
+    float fall_velocity = 0.0f;
+    float fall_start_y = 0.0f;
+    float fall_mom_x = 0.0f;
+    float fall_mom_z = 0.0f;
+    const float GRAVITY = 30.0f; // units/s^2 (gamey)
+    const float FALL_RESET_DISTANCE = 350.0f; // units to trigger reset
 
     // Main loop
     bool running = true;
@@ -196,48 +221,25 @@ int main(int argc, char** argv) {
         const float move_speed = 5.0f; // units per second
         float camera_step = move_speed * dt;
 
-        // Build forward vector from yaw/pitch
-        float yaw_rad = camera_pos.yaw * (M_PI / 180.0f);
-        float pitch_rad = camera_pos.pitch * (M_PI / 180.0f);
-        float fx = cosf(pitch_rad) * sinf(yaw_rad);
-        float fy = -sinf(pitch_rad);
-        float fz = cosf(pitch_rad) * cosf(yaw_rad);
-        // normalize forward
-        float flen = sqrtf(fx*fx + fy*fy + fz*fz);
-        if (flen > 0.000001f) { fx /= flen; fy /= flen; fz /= flen; }
+        // Movement and jumping (disabled while falling)
+        if (!is_falling) {
+            // Build forward vector from yaw/pitch
+            float yaw_rad = camera_pos.yaw * (M_PI / 180.0f);
+            float pitch_rad = camera_pos.pitch * (M_PI / 180.0f);
+            float fx = cosf(pitch_rad) * sinf(yaw_rad);
+            float fy = -sinf(pitch_rad);
+            float fz = cosf(pitch_rad) * cosf(yaw_rad);
+            // normalize forward
+            float flen = sqrtf(fx*fx + fy*fy + fz*fz);
+            if (flen > 0.000001f) { fx /= flen; fy /= flen; fz /= flen; }
 
-        // right = normalize(cross(up, forward)) ; up = (0,1,0)
-        // using cross(up, forward) because of coordinate handedness so strafing matches view
-        float rx = fz;
-        //float ry = 0.0f;
-        float rz = -fx;
-        float rlen = sqrtf(rx*rx + rz*rz);
-        if (rlen > 0.000001f) { rx /= rlen; rz /= rlen; } else { rx = 1.0f; rz = 0.0f; }
+            // right = normalize(cross(up, forward)) ; up = (0,1,0)
+            float rx = fz;
+            float rz = -fx;
+            float rlen = sqrtf(rx*rx + rz*rz);
+            if (rlen > 0.000001f) { rx /= rlen; rz /= rlen; } else { rx = 1.0f; rz = 0.0f; }
 
-        if (allow_flying) {
-            if (keystate[SDL_SCANCODE_W]) {
-                camera_pos.x += fx * camera_step;
-                camera_pos.y += fy * camera_step;
-                camera_pos.z += fz * camera_step;
-            }
-            if (keystate[SDL_SCANCODE_S]) {
-                camera_pos.x -= fx * camera_step;
-                camera_pos.y -= fy * camera_step;
-                camera_pos.z -= fz * camera_step;
-            }
-            if (keystate[SDL_SCANCODE_A]) {
-                camera_pos.x -= rx * camera_step;
-                camera_pos.z -= rz * camera_step;
-            }
-            if (keystate[SDL_SCANCODE_D]) {
-                camera_pos.x += rx * camera_step;
-                camera_pos.z += rz * camera_step;
-            }
-            if (keystate[SDL_SCANCODE_SPACE]) {
-                camera_pos.y += camera_step;
-            }
-        } else {
-            // ground-constrained movement: ignore forward.y
+            // Ground-constrained movement: ignore forward.y
             float gx = fx;
             float gz = fz;
             float glen = sqrtf(gx*gx + gz*gz);
@@ -264,21 +266,104 @@ int main(int argc, char** argv) {
                 jump_time = 0.0f;
                 ground_y = camera_pos.y;
             }
+
+            // Jumping logic
+            if (is_jumping) {
+                jump_time += dt;
+                float t = jump_time / jump_dur;
+                if (t >= 1.0f) { camera_pos.y = ground_y; is_jumping = false; }
+                else {
+                    camera_pos.y = ground_y + jump_height * sinf(M_PI * t);
+                }
+            }
+        } else {
+            // while falling, apply gravity and horizontal momentum with damping
+            fall_velocity += GRAVITY * dt;
+            camera_pos.y -= fall_velocity * dt;
+            // apply horizontal momentum
+            // damping per second -> use exp decay for frame-rate independence
+            const float MOM_DAMP_RATE = 1.5f; // larger = faster stop
+            float damp = expf(-MOM_DAMP_RATE * dt);
+            camera_pos.x += fall_mom_x * dt;
+            camera_pos.z += fall_mom_z * dt;
+            fall_mom_x *= damp;
+            fall_mom_z *= damp;
         }
 
-        // Jumping logic
-        if (is_jumping) {
-            jump_time += dt;
-            float t = jump_time / jump_dur;
-            if (t >= 1.0f) { camera_pos.y = ground_y; is_jumping = false; }
-            else {
-                camera_pos.y = ground_y + jump_height * sinf(M_PI * t);
+        // If not already falling, check bounds to start falling
+        if (!is_falling && !is_jumping) {
+            if (camera_pos.x < GROUND_MIN_X || camera_pos.x > GROUND_MAX_X || camera_pos.z < GROUND_MIN_Z || camera_pos.z > GROUND_MAX_Z) {
+                // start falling: capture horizontal momentum based on current input and orientation
+                // compute orientation vectors
+                float yaw_rad_local = camera_pos.yaw * (M_PI / 180.0f);
+                float pitch_rad_local = camera_pos.pitch * (M_PI / 180.0f);
+                float fx_local = cosf(pitch_rad_local) * sinf(yaw_rad_local);
+                float fz_local = cosf(pitch_rad_local) * cosf(yaw_rad_local);
+                float rx_local = fz_local;
+                float rz_local = -fx_local;
+                // normalize ground forward
+                float gx_local = fx_local;
+                float gz_local = fz_local;
+                float glen_local = sqrtf(gx_local*gx_local + gz_local*gz_local);
+                if (glen_local > 0.000001f) { gx_local /= glen_local; gz_local /= glen_local; } else { gx_local = 0.0f; gz_local = 1.0f; }
+                int ws = (keystate[SDL_SCANCODE_W] ? 1 : 0) - (keystate[SDL_SCANCODE_S] ? 1 : 0);
+                int ad = (keystate[SDL_SCANCODE_D] ? 1 : 0) - (keystate[SDL_SCANCODE_A] ? 1 : 0);
+                float vx = (ws * gx_local + ad * rx_local) * (move_speed);
+                float vz = (ws * gz_local + ad * rz_local) * (move_speed);
+
+                is_falling = true;
+                fall_velocity = 0.0f;
+                fall_start_y = camera_pos.y;
+                fall_mom_x = vx;
+                fall_mom_z = vz;
             }
         }
 
-        // Q = up, E = down (keep as direct Y movement)
-        if (keystate[SDL_SCANCODE_Q]) camera_pos.y += camera_step;
-        if (keystate[SDL_SCANCODE_E]) camera_pos.y -= camera_step;
+        // If falling and we've returned within bounds and hit the ground level, land
+        if (is_falling) {
+            if (camera_pos.x >= GROUND_MIN_X && camera_pos.x <= GROUND_MAX_X && camera_pos.z >= GROUND_MIN_Z && camera_pos.z <= GROUND_MAX_Z && camera_pos.y <= ground_y) {
+                is_falling = false;
+                fall_velocity = 0.0f;
+                camera_pos.y = ground_y;
+            }
+            // check fall reset distance and respawn instead of quitting
+            if (fall_start_y - camera_pos.y >= FALL_RESET_DISTANCE) {
+                // reset camera to safe high position and then continue falling to y=2.0
+                camera_pos.x = 0.0f;
+                camera_pos.y = 15.0f;
+                camera_pos.z = 0.0f;
+                camera_pos.yaw = 0.0f;
+                camera_pos.pitch = 0.0f;
+                // clear horizontal momentum, start falling from reset height
+                fall_mom_x = 0.0f;
+                fall_mom_z = 0.0f;
+                fall_velocity = 0.0f;
+                is_jumping = false;
+                // set target ground level to 2.0 and start falling
+                ground_y = 2.0f;
+                is_falling = true;
+                fall_start_y = camera_pos.y;
+            }
+        }
+
+        // Q = up, E = down (keep as direct Y movement) - disabled while falling
+        if (!is_falling) {
+            if (keystate[SDL_SCANCODE_Q]) camera_pos.y += camera_step;
+            if (keystate[SDL_SCANCODE_E]) camera_pos.y -= camera_step;
+        }
+        // Walking bob calculation (smooth start/stop). Only when on ground and not jumping or falling.
+        bool moving_input = (!is_falling) && (keystate[SDL_SCANCODE_W] || keystate[SDL_SCANCODE_A] || keystate[SDL_SCANCODE_S] || keystate[SDL_SCANCODE_D]);
+        float target_amp = (!is_jumping && !is_falling && moving_input) ? WALK_AMPLITUDE : 0.0f;
+        // smooth amplitude
+        walk_amp += (target_amp - walk_amp) * fminf(1.0f, dt * WALK_SMOOTH);
+        if (walk_amp > 0.0001f) {
+            walk_phase += dt * WALK_FREQUENCY * (2.0f * (float)M_PI);
+            if (walk_phase > 1e6f) walk_phase -= 1e6f;
+        }
+        float bob_offset = walk_amp * sinf(walk_phase);
+        // apply bob to camera for this frame only (don't modify permanent camera_pos when jumping)
+        float saved_camera_y = camera_pos.y;
+        camera_pos.y += bob_offset;
 
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         SDL_RenderClear(renderer);
@@ -304,6 +389,9 @@ int main(int argc, char** argv) {
         SDL_RenderDrawLine(renderer, cx, cy - half, cx, cy + half);
 
         SDL_RenderPresent(renderer);
+
+        // restore camera Y after rendering
+        camera_pos.y = saved_camera_y;
 
         Uint32 frame_time = SDL_GetTicks() - frame_start;
         if (frame_time < FRAME_DELAY) {
