@@ -42,10 +42,10 @@ typedef struct {
 // Global consts for window dimensions and frame rate
 static const int WIDTH = 1000;
 static const int HEIGHT = 1000;
-static const int TARGET_FPS = 60;
+static const int TARGET_FPS = 120;
 static const Uint32 FRAME_DELAY = (1000u / TARGET_FPS);
 
-// Global for camera
+// Global vars/consts for camera
 static const float ASPECT_RATIO = (float)WIDTH / (float)HEIGHT;
 static const float FOV_STEP = 1.0f;
 static const float FOV_MIN = 30.0f;
@@ -55,16 +55,20 @@ static const float PITCH_MIN = -89.0f;
 float camera_f = -0.15611995216165922; // Initial focal length (FOV=60 degrees)
 Camera camera_pos = {0.0f, 2.0f, 0.0f, 0.0f, 0.0f};
 
-// Global variables for SDL
+// Global vars for SDL
 static SDL_Window* window = NULL;
 static SDL_Renderer* renderer = NULL;
+
+// Global vars for text overlay
 static TTF_Font* font = NULL;
+static bool overlay = true;
 
 // Function prototypes
 bool init();
 void make_cube(Cube* cube, float size, Point3D center);
 void draw_cube(const Cube* cube);
 void rotate_cube(Cube* cube, Point3D axis, float angle);
+TTF_Font* open_preferred_font(int ptsize);
 
 // Main function
 int main(int argc, char** argv) {
@@ -437,40 +441,42 @@ int main(int argc, char** argv) {
         SDL_RenderDrawLine(renderer, cx, cy - half, cx, cy + half);
 
         // Show stats in the top-left corner (update only every 5 frames)
-        stats_frame_count++;
-        if (stats_texture == NULL || (stats_frame_count % 5) == 0) {
-            char stats_text[256];
-            snprintf(stats_text, sizeof(stats_text),
-                     "FPS: %d\nPos.: (x:%.2f, y:%.2f, z:%.2f)\nYaw: %.1f Pitch: %.1f\nFOV: %.1f degrees\nSpeed: %.2f u/s",
-                     (int)(1.0f / dt),
-                     camera_pos.x, camera_pos.y, camera_pos.z,
-                     camera_pos.yaw, camera_pos.pitch,
-                     fov_display,
-                     move_speed
-            );
-            SDL_Color text_color = { 255, 255, 255, 255 };
-            SDL_Surface* text_surface = TTF_RenderText_Blended_Wrapped(font, stats_text, text_color, 350);
-            if (text_surface) {
-                // replace previous texture
-                if (stats_texture) SDL_DestroyTexture(stats_texture);
-                stats_texture = SDL_CreateTextureFromSurface(renderer, text_surface);
-                if (stats_texture) {
-                    SDL_SetTextureBlendMode(stats_texture, SDL_BLENDMODE_BLEND);
+        if (overlay) {
+            stats_frame_count++;
+            if (stats_texture == NULL || (stats_frame_count % 5) == 0) {
+                char stats_text[256];
+                snprintf(stats_text, sizeof(stats_text),
+                        "FPS: %d\nPos.: (x:%.2f, y:%.2f, z:%.2f)\nYaw: %.1f Pitch: %.1f\nFOV: %.1f degrees\nSpeed: %.2f u/s",
+                        (int)(1.0f / dt),
+                        camera_pos.x, camera_pos.y, camera_pos.z,
+                        camera_pos.yaw, camera_pos.pitch,
+                        fov_display,
+                        move_speed
+                );
+                SDL_Color text_color = { 255, 255, 255, 255 };
+                SDL_Surface* text_surface = TTF_RenderText_Blended_Wrapped(font, stats_text, text_color, 350);
+                if (text_surface) {
+                    // replace previous texture
+                    if (stats_texture) SDL_DestroyTexture(stats_texture);
+                    stats_texture = SDL_CreateTextureFromSurface(renderer, text_surface);
+                    if (stats_texture) {
+                        SDL_SetTextureBlendMode(stats_texture, SDL_BLENDMODE_BLEND);
+                    }
+                    stats_rect.w = text_surface->w;
+                    stats_rect.h = text_surface->h;
+                    SDL_FreeSurface(text_surface);
                 }
-                stats_rect.w = text_surface->w;
-                stats_rect.h = text_surface->h;
-                SDL_FreeSurface(text_surface);
             }
-        }
-        if (stats_texture) {
-            // draw semi-transparent black background box behind the stats text
-            SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
-            SDL_Color bg_col = { 0, 0, 0, 96 };
-            SDL_SetRenderDrawColor(renderer, bg_col.r, bg_col.g, bg_col.b, bg_col.a);
-            SDL_Rect bg_rect = { stats_rect.x - 8, stats_rect.y - 8, stats_rect.w + 16, stats_rect.h + 16 };
-            SDL_RenderFillRect(renderer, &bg_rect);
+            if (stats_texture) {
+                // draw semi-transparent black background box behind the stats text
+                SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+                SDL_Color bg_col = { 0, 0, 0, 96 };
+                SDL_SetRenderDrawColor(renderer, bg_col.r, bg_col.g, bg_col.b, bg_col.a);
+                SDL_Rect bg_rect = { stats_rect.x - 8, stats_rect.y - 8, stats_rect.w + 16, stats_rect.h + 16 };
+                SDL_RenderFillRect(renderer, &bg_rect);
 
-            SDL_RenderCopy(renderer, stats_texture, NULL, &stats_rect);
+                SDL_RenderCopy(renderer, stats_texture, NULL, &stats_rect);
+            }
         }
 
         // Render present
@@ -522,13 +528,12 @@ bool init() {
         return false;
     }
 
-    font = TTF_OpenFont("assets/Consolas-Regular.ttf", 16);
+    // Try a small prioritized list of monospace fonts (Consolas -> Courier New -> DejaVu Sans Mono -> Lucida Console)
+    // This will attempt a set of likely file paths on Windows and Linux and return the first font that opens.
+    font = open_preferred_font(16);
     if (!font) {
-        fprintf(stderr, "TTF_OpenFont Error: %s\n", TTF_GetError());
-        SDL_DestroyRenderer(renderer);
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return false;
+        fprintf(stderr, "TTF_OpenFont Error: no fallback fonts found (%s)\n", TTF_GetError());
+        overlay = false; // disable overlay if no font
     }
 
     return true;
@@ -670,4 +675,39 @@ void rotate_cube(Cube* cube, Point3D axis, float angle) {
         cube->points[i].y = center_y + ry;
         cube->points[i].z = center_z + rz;
     }
+}
+
+// Try opening several likely TTF file paths for preferred monospace fonts in order:
+// Consolas, Courier New, DejaVu Sans Mono, Lucida Console.
+// Returns an opened TTF_Font* or NULL if none found.
+TTF_Font* open_preferred_font(int ptsize) {
+    const char* family_names[] = {"Consolas", "Courier New", "DejaVu Sans Mono", "Lucida Console"};
+
+    #ifdef _WIN32
+    const char* consolas_paths[] = {"C:/Windows/Fonts/Consolas Regular.ttf", "C:/Windows/Fonts/consola.TTF", NULL};
+    const char* courier_paths[]  = {"C:/Windows/Fonts/Courier New Regular.ttf", "C:/Windows/Fonts/cour.ttf", NULL};
+    const char* lucida_paths[]   = {"C:/Windows/Fonts/Lucida Console Regular.ttf", "C:/Windows/Fonts/lucon.ttf", NULL};
+    const char** families[] = {consolas_paths, courier_paths, lucida_paths};
+    #else
+    const char* consolas_paths[] = {"/usr/share/fonts/truetype/msttcorefonts/Consolas.ttf", "/usr/share/fonts/truetype/Consolas/Consolas.ttf", NULL};
+    const char* courier_paths[]  = {"/usr/share/fonts/truetype/msttcorefonts/Courier_New.ttf", "/usr/share/fonts/truetype/msttcorefonts/Courier New.ttf", "/usr/share/fonts/truetype/freefont/FreeMono.ttf", NULL};
+    const char* dejavu_paths[]   = {"/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", "/usr/local/share/fonts/DejaVuSansMono.ttf", NULL};
+    const char* lucida_paths[]   = {"/usr/share/fonts/truetype/lucida/LucidaConsole.ttf", "/usr/share/fonts/truetype/msttcorefonts/Lucida_Console.ttf", NULL};
+    const char** families[] = {consolas_paths, courier_paths, dejavu_paths, lucida_paths};
+    #endif
+
+    for (size_t f = 0; f < (sizeof(families) / sizeof(families[0])); ++f) {
+        const char** paths = families[f];
+        for (size_t i = 0; paths[i] != NULL; ++i) {
+            const char* p = paths[i];
+            if (!p) continue;
+            TTF_Font* fnt = TTF_OpenFont(p, ptsize);
+            if (fnt) {
+                fprintf(stderr, "Loaded font '%s' (family %s)\n", p, family_names[f]);
+                return fnt;
+            }
+        }
+    }
+
+    return NULL;
 }

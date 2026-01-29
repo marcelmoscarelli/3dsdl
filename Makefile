@@ -7,14 +7,19 @@ PKG_CONFIG = pkg-config
 CFLAGS = -O3 -Wall -Wextra $(shell $(PKG_CONFIG) --cflags sdl2 sdl2_ttf)
 LDFLAGS = $(shell $(PKG_CONFIG) --libs sdl2 sdl2_ttf)
 
+BINDIR = bin
 SRC = main.c
 OBJ = $(SRC:.c=.o)
-TARGET = 3D_SDL
+TARGET = $(BINDIR)/3D_SDL
 
 all: $(TARGET)
 
-$(TARGET): $(OBJ)
+$(TARGET): $(OBJ) | $(BINDIR)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) -lm
+	rm -f $(OBJ)
+
+$(BINDIR):
+	mkdir -p $(BINDIR)
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
