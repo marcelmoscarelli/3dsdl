@@ -146,8 +146,9 @@ int main(int argc, char** argv) {
     const float GROUND_MAX_Z =  ground_offset_z + ground_half;
 
     // Camera parameters
-    float fov = 60.0f;                      // Field of view in degrees
-    float fov_rad = fov * (M_PI / 180.0f);  // Convert to radians
+    float fov_base = 60.0f;                  // Base FOV controlled by mouse wheel
+    float fov_display = 60.0f;               // Actual FOV used for rendering (can be interpolated during sprint)
+    float fov_rad = fov_display * (M_PI / 180.0f);  // Convert to radians
     camera_f = 1.0f / tanf(fov_rad * 0.5f); // Focal length of the camera
     // Enable relative mouse mode for FPS-style look
     SDL_SetRelativeMouseMode(SDL_TRUE);
@@ -163,7 +164,8 @@ int main(int argc, char** argv) {
     float walk_phase = 0.0f;
     float walk_amp = 0.0f; // current amplitude
     const float WALK_AMPLITUDE = 0.15f; // meters
-    const float WALK_FREQUENCY = 2.25f; // steps per second
+    const float WALK_FREQUENCY = 2.25f; // steps per second (base)
+    float walk_frequency_current = WALK_FREQUENCY; // may be increased while sprinting
     const float WALK_SMOOTH = 8.0f; // smoothing rate
 
     // Falling / gravity
@@ -200,17 +202,15 @@ int main(int argc, char** argv) {
                 case SDL_QUIT:
                     running = false;
                     break;
-                case SDL_MOUSEWHEEL: // Adjust FOV with mouse wheel
+                case SDL_MOUSEWHEEL: // Adjust base FOV with mouse wheel
                     if (event.wheel.y > 0) {
-                        fov -= FOV_STEP;
+                        fov_base -= FOV_STEP;
                     } else if (event.wheel.y < 0) {
-                        fov += FOV_STEP;
+                        fov_base += FOV_STEP;
                     }
-                    if (fov < FOV_MIN) fov = FOV_MIN;
-                    if (fov > FOV_MAX) fov = FOV_MAX;
-                    printf("FOV: %f degrees\n", fov);
-                    fov_rad = fov * (M_PI / 180.0f);
-                    camera_f = 1.0f / tanf(fov_rad * 0.5f);
+                    if (fov_base < FOV_MIN) fov_base = FOV_MIN;
+                    if (fov_base > FOV_MAX) fov_base = FOV_MAX;
+                    printf("Base FOV set to: %f degrees\n", fov_base);
                     break;
                 case SDL_MOUSEMOTION: {
                     // Update camera orientation from mouse movement
@@ -233,8 +233,21 @@ int main(int argc, char** argv) {
         last_ticks = now;
 
         const Uint8* keystate = SDL_GetKeyboardState(NULL);
-        const float move_speed = 5.0f; // units per second
+        const float move_speed_base = 5.0f; // units per second (base)
+        const float sprint_multiplier = 1.6f; // how much faster when sprinting
+        bool sprint = (keystate[SDL_SCANCODE_LSHIFT] && keystate[SDL_SCANCODE_W]);
+        float move_speed = move_speed_base * (sprint ? sprint_multiplier : 1.0f);
         float camera_step = move_speed * dt;
+        // increase walk frequency a bit while sprinting
+        walk_frequency_current = sprint ? (WALK_FREQUENCY * 1.4f) : WALK_FREQUENCY;
+        // Smoothly interpolate FOV display towards sprint FOV when sprinting
+        const float SPRINT_FOV = (fov_base + 30.0f > FOV_MAX) ? FOV_MAX : (fov_base + 30.0f);
+        float fov_target = sprint ? SPRINT_FOV : fov_base;
+        const float FOV_LERP_SPEED = 6.0f; // higher = faster interpolation
+        fov_display += (fov_target - fov_display) * fminf(1.0f, dt * FOV_LERP_SPEED);
+        // update derived camera focal length
+        fov_rad = fov_display * (M_PI / 180.0f);
+        camera_f = 1.0f / tanf(fov_rad * 0.5f);
 
         // Movement and jumping (disabled while falling)
         if (!is_falling) {
@@ -381,7 +394,7 @@ int main(int argc, char** argv) {
         // smooth amplitude
         walk_amp += (target_amp - walk_amp) * fminf(1.0f, dt * WALK_SMOOTH);
         if (walk_amp > 0.0001f) {
-            walk_phase += dt * WALK_FREQUENCY * (2.0f * (float)M_PI);
+            walk_phase += dt * walk_frequency_current * (2.0f * (float)M_PI);
             if (walk_phase > 1e6f) walk_phase -= 1e6f;
         }
         float bob_offset = walk_amp * sinf(walk_phase);
@@ -428,11 +441,12 @@ int main(int argc, char** argv) {
         if (stats_texture == NULL || (stats_frame_count % 5) == 0) {
             char stats_text[256];
             snprintf(stats_text, sizeof(stats_text),
-                     "FPS: %d\nPos.: (x:%.2f, y:%.2f, z:%.2f)\nYaw: %.1f Pitch: %.1f\nFOV: %.1f degrees",
+                     "FPS: %d\nPos.: (x:%.2f, y:%.2f, z:%.2f)\nYaw: %.1f Pitch: %.1f\nFOV: %.1f degrees\nSpeed: %.2f u/s",
                      (int)(1.0f / dt),
                      camera_pos.x, camera_pos.y, camera_pos.z,
                      camera_pos.yaw, camera_pos.pitch,
-                     fov
+                     fov_display,
+                     move_speed
             );
             SDL_Color text_color = { 255, 255, 255, 255 };
             SDL_Surface* text_surface = TTF_RenderText_Blended_Wrapped(font, stats_text, text_color, 350);
