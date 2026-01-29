@@ -4,8 +4,8 @@ PKG_CONFIG = pkg-config
 #CFLAGS = -O3 -Wall -Wextra $(shell $(PKG_CONFIG) --cflags sdl2 sdl2_ttf sdl2_image)
 #LDFLAGS = $(shell $(PKG_CONFIG) --libs sdl2 sdl2_ttf sdl2_image)
 
-CFLAGS = -O3 -Wall -Wextra $(shell $(PKG_CONFIG) --cflags sdl2 sdl2_ttf)
-LDFLAGS = $(shell $(PKG_CONFIG) --libs sdl2 sdl2_ttf)
+CFLAGS = -O3 -Wall -Wextra $(shell $(PKG_CONFIG) --cflags sdl2 SDL2_ttf)
+LDFLAGS = $(shell $(PKG_CONFIG) --libs sdl2 SDL2_ttf)
 
 BINDIR = bin
 SRC = main.c
