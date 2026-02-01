@@ -4,7 +4,8 @@
 ### Dependencies, for now
 -	libsdl2
 -	libsdl2-ttf
-(development packages and pkg-config needed for build)
+
+(dev packages and pkg-config needed to build)
 
 ### Build & Run
 -	`make` to build
