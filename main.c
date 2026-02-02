@@ -689,11 +689,10 @@ TTF_Font* open_preferred_font(int ptsize) {
     const char* lucida_paths[]   = {"C:/Windows/Fonts/Lucida Console Regular.ttf", "C:/Windows/Fonts/lucon.ttf", NULL};
     const char** families[] = {consolas_paths, courier_paths, lucida_paths};
     #else
-    const char* consolas_paths[] = {"/usr/share/fonts/truetype/msttcorefonts/Consolas.ttf", "/usr/share/fonts/truetype/Consolas/Consolas.ttf", NULL};
-    const char* courier_paths[]  = {"/usr/share/fonts/truetype/msttcorefonts/Courier_New.ttf", "/usr/share/fonts/truetype/msttcorefonts/Courier New.ttf", "/usr/share/fonts/truetype/freefont/FreeMono.ttf", NULL};
     const char* dejavu_paths[]   = {"/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", "/usr/local/share/fonts/DejaVuSansMono.ttf", NULL};
+    const char* courier_paths[]  = {"/usr/share/fonts/truetype/msttcorefonts/Courier_New.ttf", "/usr/share/fonts/truetype/msttcorefonts/Courier New.ttf", "/usr/share/fonts/truetype/freefont/FreeMono.ttf", NULL};
     const char* lucida_paths[]   = {"/usr/share/fonts/truetype/lucida/LucidaConsole.ttf", "/usr/share/fonts/truetype/msttcorefonts/Lucida_Console.ttf", NULL};
-    const char** families[] = {consolas_paths, courier_paths, dejavu_paths, lucida_paths};
+    const char** families[] = {dejavu_paths, courier_paths, lucida_paths};
     #endif
 
     for (size_t f = 0; f < (sizeof(families) / sizeof(families[0])); ++f) {
