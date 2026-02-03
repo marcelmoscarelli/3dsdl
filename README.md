@@ -1,25 +1,24 @@
 ### Description
--	A basic 3D engine using only SDL2, gorilla-style.
+-	A basic 3D engine experiment using only SDL2, gorilla-style.
+
+(I know SDL2 is outdated)
 
 ### Dependencies, for now
--	libsdl2
--	libsdl2-ttf
-
-(dev packages and pkg-config needed to build)
+-	libsdl2-dev
+-	libsdl2-ttf-dev
+-	pkg-config
 
 ### Build & Run
 -	`make` to build
--	`./bin/3D_SDL` to run
+-	`./bin/3dsdl` to run
+
+(Windows builds: also pretty straightforward if you have mingw64 and pkg-config pointing to the other libs)
 
 ### Controls
 -   WASD: movement
 -   Left-shift (hold): sprint
 -   Space: jump
 -   Mouse-wheel scrolling: adjust FOV
-
-### Stats Overlay
--	The program attempts to open a few system fonts to display an overlay.
--   If no compatible font is found, the stats overlay will not be displayed.
 
 ### License
 WTFPL.
