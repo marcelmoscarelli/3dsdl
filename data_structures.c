@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include "cube.h"
 #include "data_structures.h"
 
 void init_cube_darray(Cube_DArray* darray, size_t initial_size) {

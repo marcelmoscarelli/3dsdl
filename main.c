@@ -1,35 +1,31 @@
-#include <stdio.h>   // fprintf, stderr
-#include <stdlib.h>  // exit, EXIT_FAILURE, EXIT_SUCCESS, rand, srand
-#include <time.h>    // time
-#include <stdbool.h> // bool type, true, false
-#include <math.h>    // tanf, sinf, cosf, sqrtf, expf
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <stdbool.h>
 
 #include <SDL2/SDL.h>
 #include <SDL_ttf.h>
 
+#include "cube.h"
 #include "data_structures.h"
 #include "settings.h"
 
+#include <math.h>
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
 Camera camera = {0.0f, 2.0f, 0.0f, 0.0f, 0.0f, -0.15611995216165922};
 
-// Global vars for SDL
+// Globals for SDL
+SDL_Renderer* renderer = NULL;
 static SDL_Window* window = NULL;
-static SDL_Renderer* renderer = NULL;
-static SDL_Color WHITE = { 255, 255, 255, 255 };
-
-// Global vars for text overlay
+static const SDL_Color WHITE = { 255, 255, 255, 255 };
 static TTF_Font* font = NULL;
 static bool overlay = true;
 
 // Function prototypes
 bool init();
-void make_cube(Cube* cube, float size, Point3D center);
-void draw_cube(const Cube* cube);
-void rotate_cube(Cube* cube, Point3D axis, float angle);
 TTF_Font* open_preferred_font(int ptsize);
 
 // Main function
@@ -90,7 +86,7 @@ int main(int argc, char** argv) {
     float ground_offset_x = ((GROUND_W - 1) * ground_step) / 2.0f;
     float ground_offset_z = ((GROUND_H - 1) * ground_step) / 2.0f;
     float ground_half = GROUND_CUBE_SIZE / 2.0f;
-    const float GROUND_MIN_X = -ground_offset_x - ground_half;
+    const float GROUND_MIN_X = -ground_offset_x - ground_half; // TODO: fix this crappy method
     const float GROUND_MAX_X =  ground_offset_x + ground_half;
     const float GROUND_MIN_Z = -ground_offset_z - ground_half;
     const float GROUND_MAX_Z =  ground_offset_z + ground_half;
@@ -421,189 +417,44 @@ int main(int argc, char** argv) {
 
 bool init() {
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
-        fprintf(stderr, "SDL_Init Error: %s\n", SDL_GetError());
+        printf("SDL_Init Error: %s\n", SDL_GetError());
         return false;
     }
 
-    window = SDL_CreateWindow("3D SDL", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WIDTH, HEIGHT, SDL_WINDOW_SHOWN);
+    window = SDL_CreateWindow("3dsdl", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WIDTH, HEIGHT, SDL_WINDOW_SHOWN);
     if (!window) {
-        fprintf(stderr, "SDL_CreateWindow Error: %s\n", SDL_GetError());
+        printf("SDL_CreateWindow Error: %s\n", SDL_GetError());
         SDL_Quit();
         return false;
     }
 
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     if (!renderer) {
-        fprintf(stderr, "SDL_CreateRenderer Error: %s\n", SDL_GetError());
+        printf("SDL_CreateRenderer Error: %s\n", SDL_GetError());
         SDL_DestroyWindow(window);
         SDL_Quit();
         return false;
     }
 
     if (TTF_Init() != 0) {
-        fprintf(stderr, "TTF_Init Error: %s\n", TTF_GetError());
+        printf("TTF_Init Error: %s\n", TTF_GetError());
         SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
         SDL_Quit();
         return false;
     }
 
-    // Try a small prioritized list of monospace fonts (Consolas -> Courier New -> DejaVu Sans Mono -> Lucida Console)
-    // This will attempt a set of likely file paths on Windows and Linux and return the first font that opens.
     font = open_preferred_font(16);
     if (!font) {
-        fprintf(stderr, "TTF_OpenFont Error: no fallback fonts found (%s)\n", TTF_GetError());
-        overlay = false; // disable overlay if no font
+        printf("TTF_OpenFont Error: overlay disabled (%s)\n", TTF_GetError());
+        overlay = false;
     }
 
     return true;
 }
 
-void make_cube(Cube* cube, float size, Point3D center) {
-    if (!cube) {
-        fprintf(stderr, "make_cube(): NULL cube pointer. Exiting!\n");
-        exit(EXIT_FAILURE);
-    }
-    float half_size = size / 2.0f;
-
-    // Front face
-    cube->points[0] = (Point3D){ center.x - half_size, center.y - half_size, center.z - half_size }; // A
-    cube->points[1] = (Point3D){ center.x + half_size, center.y - half_size, center.z - half_size }; // B
-    cube->points[2] = (Point3D){ center.x + half_size, center.y + half_size, center.z - half_size }; // C
-    cube->points[3] = (Point3D){ center.x - half_size, center.y + half_size, center.z - half_size }; // D
-
-    // Back face
-    cube->points[4] = (Point3D){ center.x - half_size, center.y - half_size, center.z + half_size }; // E
-    cube->points[5] = (Point3D){ center.x + half_size, center.y - half_size, center.z + half_size }; // F
-    cube->points[6] = (Point3D){ center.x + half_size, center.y + half_size, center.z + half_size }; // G
-    cube->points[7] = (Point3D){ center.x - half_size, center.y + half_size, center.z + half_size }; // H
-}
-
-void draw_cube(const Cube* cube) {
-    if (!cube) {
-        fprintf(stderr, "draw_cube(): NULL cube pointer. Exiting!\n");
-        exit(EXIT_FAILURE);
-    }
-    
-    SDL_SetRenderDrawColor(renderer, cube->color.r, cube->color.g, cube->color.b, cube->color.a);
-    Point2D projected[8];
-    bool skip_point[8] = { false };
-    // Initialize projected points to safe defaults
-    for (size_t i = 0; i < 8; ++i) {
-        projected[i].x = 0;
-        projected[i].y = 0;
-    }
-    // Precompute camera rotation
-    float yaw_rad = camera.yaw * (M_PI / 180.0f);
-    float pitch_rad = camera.pitch * (M_PI / 180.0f);
-    float cos_yaw = cosf(yaw_rad);
-    float sin_yaw = sinf(yaw_rad);
-    float cos_pitch = cosf(pitch_rad);
-    float sin_pitch = sinf(pitch_rad);
-
-    for (size_t i = 0; i < 8; ++i) {
-        // World -> camera space: translate then rotate by inverse camera yaw/pitch
-        float rel_x = cube->points[i].x - camera.x;
-        float rel_y = cube->points[i].y - camera.y;
-        float rel_z = cube->points[i].z - camera.z;
-
-        // Apply inverse yaw rotation (rotate by -yaw)
-        float x1 =  cos_yaw * rel_x - sin_yaw * rel_z;
-        float z1 =  sin_yaw * rel_x + cos_yaw * rel_z;
-
-        // Apply inverse pitch rotation (rotate by -pitch)
-        float y2 =  cos_pitch * rel_y + sin_pitch * z1;
-        float z2 = -sin_pitch * rel_y + cos_pitch * z1;
-
-        if (z2 <= 0) { // Behind camera
-            skip_point[i] = true;
-            continue;
-        }
-
-        float x_ndc = (x1 * camera.focal_length / ASPECT_RATIO) / z2;
-        float y_ndc = (y2 * camera.focal_length) / z2;
-        projected[i].x = (int)SDL_roundf((x_ndc + 1.0f) * 0.5f * WIDTH);
-        projected[i].y = (int)SDL_roundf((1.0f - (y_ndc + 1.0f) * 0.5f) * HEIGHT);
-    }
-
-    for (size_t i = 0; i < 4; ++i) {
-        int next_i = (i + 1) % 4;
-        // Front face: draw only if both endpoints are in front of camera
-        if (!skip_point[i] && !skip_point[next_i]) {
-            SDL_RenderDrawLine(renderer, (int)projected[i].x, (int)projected[i].y, (int)projected[next_i].x, (int)projected[next_i].y);
-        }
-        // Back face
-        if (!skip_point[i + 4] && !skip_point[next_i + 4]) {
-            SDL_RenderDrawLine(renderer, (int)projected[i + 4].x, (int)projected[i + 4].y, (int)projected[next_i + 4].x, (int)projected[next_i + 4].y);
-        }
-        // Connect front and back faces
-        if (!skip_point[i] && !skip_point[i + 4]) {
-            SDL_RenderDrawLine(renderer, (int)projected[i].x, (int)projected[i].y, (int)projected[i + 4].x, (int)projected[i + 4].y);
-        }
-    }
-}
-
-// Rotate all points of a cube around an arbitrary axis passing through `center`.
-// `axis` is a direction vector (does not need to be unit length). `angle` is in radians.
-void rotate_cube(Cube* cube, Point3D axis, float angle) {
-    if (!cube) return;
-    // calc the center of the cube
-    float center_x = 0.0f;
-    float center_y = 0.0f;
-    float center_z = 0.0f;
-    for (size_t i = 0; i < 8; ++i) {
-        center_x += cube->points[i].x;
-        center_y += cube->points[i].y;
-        center_z += cube->points[i].z;
-    }
-    center_x /= 8.0f;
-    center_y /= 8.0f;
-    center_z /= 8.0f;
-
-    // normalize axis
-    float ax = axis.x;
-    float ay = axis.y;
-    float az = axis.z;
-    float alen = sqrtf(ax*ax + ay*ay + az*az);
-    if (alen < 1e-6f) return;
-    float kx = ax / alen;
-    float ky = ay / alen;
-    float kz = az / alen;
-
-    float c = cosf(angle);
-    float s = sinf(angle);
-
-    for (size_t i = 0; i < 8; ++i) {
-        // vector from center to point
-        float vx = cube->points[i].x - center_x;
-        float vy = cube->points[i].y - center_y;
-        float vz = cube->points[i].z - center_z;
-
-        // k x v
-        float cx = ky * vz - kz * vy;
-        float cy = kz * vx - kx * vz;
-        float cz = kx * vy - ky * vx;
-
-        // k . v
-        float kd = kx * vx + ky * vy + kz * vz;
-
-        // Rodrigues' rotation formula
-        float rx = vx * c + cx * s + kx * kd * (1.0f - c);
-        float ry = vy * c + cy * s + ky * kd * (1.0f - c);
-        float rz = vz * c + cz * s + kz * kd * (1.0f - c);
-
-        cube->points[i].x = center_x + rx;
-        cube->points[i].y = center_y + ry;
-        cube->points[i].z = center_z + rz;
-    }
-}
-
-// Try opening several likely TTF file paths for preferred monospace fonts in order:
-// Consolas, Courier New, DejaVu Sans Mono, Lucida Console.
-// Returns an opened TTF_Font* or NULL if none found.
+// Try loading from a small list of monospace fonts
 TTF_Font* open_preferred_font(int ptsize) {
-    const char* family_names[] = {"Consolas", "Courier New", "DejaVu Sans Mono", "Lucida Console"};
-
     #ifdef _WIN32
     const char* consolas_paths[] = {"C:/Windows/Fonts/Consolas Regular.ttf", "C:/Windows/Fonts/consola.TTF", NULL};
     const char* courier_paths[]  = {"C:/Windows/Fonts/Courier New Regular.ttf", "C:/Windows/Fonts/cour.ttf", NULL};
@@ -620,11 +471,12 @@ TTF_Font* open_preferred_font(int ptsize) {
         const char** paths = families[f];
         for (size_t i = 0; paths[i] != NULL; ++i) {
             const char* p = paths[i];
-            if (!p) continue;
-            TTF_Font* fnt = TTF_OpenFont(p, ptsize);
-            if (fnt) {
-                fprintf(stderr, "Loaded font '%s' (family %s)\n", p, family_names[f]);
-                return fnt;
+            if (!p) { // should not happen
+                continue;
+            }
+            TTF_Font* font = TTF_OpenFont(p, ptsize);
+            if (font) {
+                return font;
             }
         }
     }
