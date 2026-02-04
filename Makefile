@@ -5,7 +5,7 @@ CFLAGS = -O3 -Wall -Wextra $(shell $(PKG_CONFIG) --cflags sdl2 SDL2_ttf)
 LDFLAGS = $(shell $(PKG_CONFIG) --libs sdl2 SDL2_ttf)
 
 BINDIR = bin
-SRC = main.c
+SRC = main.c data_structures.c settings.c
 OBJ = $(SRC:.c=.o)
 TARGET = $(BINDIR)/3dsdl
 

@@ -1,63 +1,25 @@
-#include <SDL2/SDL.h>
-#include <SDL_ttf.h>
 #include <stdio.h>   // fprintf, stderr
 #include <stdlib.h>  // exit, EXIT_FAILURE, EXIT_SUCCESS, rand, srand
 #include <time.h>    // time
 #include <stdbool.h> // bool type, true, false
 #include <math.h>    // tanf, sinf, cosf, sqrtf, expf
 
+#include <SDL2/SDL.h>
+#include <SDL_ttf.h>
+
+#include "data_structures.h"
+#include "settings.h"
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
-// Data structures
-typedef struct {
-    float x;
-    float y;
-} Point2D;
-
-typedef struct {
-    float x;
-    float y;
-    float z;
-} Point3D;
-
-typedef struct {
-    Point3D points[8];
-} Cube;
-
-typedef struct {
-    Cube arr[10000];
-    size_t size;
-} CubeArray;
-
-typedef struct {
-    float x;
-    float y;
-    float z;
-    float yaw;
-    float pitch;
-} Camera;
-
-// Global consts for window dimensions and frame rate
-static const int WIDTH = 1000;
-static const int HEIGHT = 1000;
-static const int TARGET_FPS = 120;
-static const Uint32 FRAME_DELAY = (1000u / TARGET_FPS);
-
-// Global vars/consts for camera
-static const float ASPECT_RATIO = (float)WIDTH / (float)HEIGHT;
-static const float FOV_STEP = 1.0f;
-static const float FOV_MIN = 30.0f;
-static const float FOV_MAX = 120.0f;
-static const float PITCH_MAX = 89.0f;
-static const float PITCH_MIN = -89.0f;
-float camera_f = -0.15611995216165922; // Initial focal length (FOV=60 degrees)
-Camera camera_pos = {0.0f, 2.0f, 0.0f, 0.0f, 0.0f};
+Camera camera = {0.0f, 2.0f, 0.0f, 0.0f, 0.0f, -0.15611995216165922};
 
 // Global vars for SDL
 static SDL_Window* window = NULL;
 static SDL_Renderer* renderer = NULL;
+static SDL_Color WHITE = { 255, 255, 255, 255 };
 
 // Global vars for text overlay
 static TTF_Font* font = NULL;
@@ -82,42 +44,16 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
 
-    // Grid parameters
-    const int GRID_W = 5;
-    const int GRID_H = 5;
-    const float CUBE_SIZE = 1.5f;
-    const float SPACING = 1.5f;
-    const float DEPTH_Z = 12.5f;
-
-    CubeArray cube_wall = {.size = 0};
-    const int total = GRID_W * GRID_H;
-    for (int i = 0; i < total; ++i) {
-        int gx = i % GRID_W;
-        int gy = i / GRID_W;
-
-        float step = CUBE_SIZE + SPACING; // center-to-center distance
-        float offset_x = ((GRID_W - 1) * step) / 2.0f;
-        float half_size = CUBE_SIZE / 2.0f;
-
-        // Keep grid centered in X, but place wall above ground (y=0).
-        // Set the lowest cube's bottom at y=0 => its center at half_size.
-        Point3D center = {
-            .x = gx * step - offset_x,
-            .y = gy * step + half_size + SPACING,
-            .z = DEPTH_Z
-        };
-
-        make_cube(&cube_wall.arr[cube_wall.size], CUBE_SIZE, center);
-        cube_wall.size++;
-    }
+    // Initialize a dynamic array for cubes
+    Cube_DArray cubes;
+    init_cube_darray(&cubes, 1000);
     
     // Ground grid parameters (100x100, cubes glued together, size 0.25)
-    const int GROUND_W = 75;
-    const int GROUND_H = 75;
+    const int GROUND_W = 50;
+    const int GROUND_H = 50;
     const float GROUND_CUBE_SIZE = 0.5f;
     const float GROUND_SPACING = 0.0f; // glued
 
-    CubeArray cube_ground = {.size = 0};
     const int ground_total = GROUND_W * GROUND_H;
     for (int i = 0; i < ground_total; ++i) {
         int gx = i % GROUND_W;
@@ -135,8 +71,18 @@ int main(int argc, char** argv) {
             .z = gz * step - offset_z
         };
 
-        make_cube(&cube_ground.arr[cube_ground.size], GROUND_CUBE_SIZE, center);
-        cube_ground.size++;
+        Cube* new_cube = (Cube*)malloc(sizeof(Cube));
+        
+        make_cube(new_cube, GROUND_CUBE_SIZE, center);
+        new_cube->color = WHITE;
+
+        // Squash cubes flat (become 2D tiles)
+        new_cube->points[0] = new_cube->points[2];
+        new_cube->points[1] = new_cube->points[3];
+        new_cube->points[4] = new_cube->points[6];
+        new_cube->points[5] = new_cube->points[7];
+
+        add_cube_to_darray(&cubes, new_cube);
     }
 
     // Compute ground bounds (world space) so we can detect falling off edges
@@ -153,7 +99,7 @@ int main(int argc, char** argv) {
     float fov_base = 60.0f;                  // Base FOV controlled by mouse wheel
     float fov_display = 60.0f;               // Actual FOV used for rendering (can be interpolated during sprint)
     float fov_rad = fov_display * (M_PI / 180.0f);  // Convert to radians
-    camera_f = 1.0f / tanf(fov_rad * 0.5f); // Focal length of the camera
+    camera.focal_length = 1.0f / tanf(fov_rad * 0.5f); // Focal length of the camera
     // Enable relative mouse mode for FPS-style look
     SDL_SetRelativeMouseMode(SDL_TRUE);
     SDL_ShowCursor(SDL_DISABLE);
@@ -161,8 +107,8 @@ int main(int argc, char** argv) {
     // Vertical movement (jump / fall) parameters
     bool is_grounded = true;
     float vertical_velocity = 0.0f; // positive = up
-    const float JUMP_IMPULSE = 8.0f; // initial upward velocity for a jump (tweakable)
-    float ground_y = camera_pos.y;
+    const float JUMP_IMPULSE = 10.0f; // initial upward velocity for a jump (tweakable)
+    float ground_y = camera.y;
 
     // Walking (bob) parameters
     float walk_phase = 0.0f;
@@ -178,16 +124,7 @@ int main(int argc, char** argv) {
     float fall_mom_x = 0.0f;
     float fall_mom_z = 0.0f;
     const float GRAVITY = 30.0f; // units/s^2 (gamey)
-    const float FALL_RESET_DISTANCE = 250.0f; // units to trigger reset
-
-    // Make rotation vectors
-    Point3D rotation_vectors[1000];
-    srand(time(NULL));
-    for (size_t ri = 0; ri < cube_wall.size; ++ri) {
-        rotation_vectors[ri].x = ((float)(rand() % 2001) / 1000.0f) - 1.0f;
-        rotation_vectors[ri].y = ((float)(rand() % 2001) / 1000.0f) - 1.0f;
-        rotation_vectors[ri].z = ((float)(rand() % 2001) / 1000.0f) - 1.0f;
-    }
+    const float FALL_RESET_DISTANCE = 200.0f; // units to trigger reset
 
     // Main loop
     bool running = true;
@@ -219,11 +156,11 @@ int main(int argc, char** argv) {
                 case SDL_MOUSEMOTION: {
                     // Update camera orientation from mouse movement
                     const float mouse_sens = 0.1f; // degrees per pixel
-                    camera_pos.yaw += event.motion.xrel * mouse_sens;
+                    camera.yaw += event.motion.xrel * mouse_sens;
                     // Standard Y (not inverted): moving mouse up decreases yrel, so add it
-                    camera_pos.pitch += event.motion.yrel * mouse_sens;
-                    if (camera_pos.pitch > PITCH_MAX) camera_pos.pitch = PITCH_MAX;
-                    if (camera_pos.pitch < PITCH_MIN) camera_pos.pitch = PITCH_MIN;
+                    camera.pitch += event.motion.yrel * mouse_sens;
+                    if (camera.pitch > PITCH_MAX) camera.pitch = PITCH_MAX;
+                    if (camera.pitch < PITCH_MIN) camera.pitch = PITCH_MIN;
                     break;
                 }
                 default:
@@ -238,26 +175,26 @@ int main(int argc, char** argv) {
 
         const Uint8* keystate = SDL_GetKeyboardState(NULL);
         const float move_speed_base = 5.0f; // units per second (base)
-        const float sprint_multiplier = 1.6f; // how much faster when sprinting
+        const float sprint_multiplier = 2.0f; // how much faster when sprinting
         bool sprint = (keystate[SDL_SCANCODE_LSHIFT] && keystate[SDL_SCANCODE_W]);
         float move_speed = move_speed_base * (sprint ? sprint_multiplier : 1.0f);
         float camera_step = move_speed * dt;
         // increase walk frequency a bit while sprinting
         walk_frequency_current = sprint ? (WALK_FREQUENCY * 1.4f) : WALK_FREQUENCY;
         // Smoothly interpolate FOV display towards sprint FOV when sprinting
-        const float SPRINT_FOV = (fov_base + 30.0f > FOV_MAX) ? FOV_MAX : (fov_base + 30.0f);
+        const float SPRINT_FOV = (fov_base + 20.0f > FOV_MAX) ? FOV_MAX : (fov_base + 20.0f);
         float fov_target = sprint ? SPRINT_FOV : fov_base;
         const float FOV_LERP_SPEED = 6.0f; // higher = faster interpolation
         fov_display += (fov_target - fov_display) * fminf(1.0f, dt * FOV_LERP_SPEED);
         // update derived camera focal length
         fov_rad = fov_display * (M_PI / 180.0f);
-        camera_f = 1.0f / tanf(fov_rad * 0.5f);
+        camera.focal_length = 1.0f / tanf(fov_rad * 0.5f);
 
         // Movement and jumping (disabled while falling)
         if (!is_falling) {
             // Build forward vector from yaw/pitch
-            float yaw_rad = camera_pos.yaw * (M_PI / 180.0f);
-            float pitch_rad = camera_pos.pitch * (M_PI / 180.0f);
+            float yaw_rad = camera.yaw * (M_PI / 180.0f);
+            float pitch_rad = camera.pitch * (M_PI / 180.0f);
             float fx = cosf(pitch_rad) * sinf(yaw_rad);
             float fy = -sinf(pitch_rad);
             float fz = cosf(pitch_rad) * cosf(yaw_rad);
@@ -278,23 +215,23 @@ int main(int argc, char** argv) {
             if (glen > 0.000001f) { gx /= glen; gz /= glen; } else { gx = 0.0f; gz = 1.0f; }
 
             if (keystate[SDL_SCANCODE_W]) {
-                camera_pos.x += gx * camera_step;
-                camera_pos.z += gz * camera_step;
+                camera.x += gx * camera_step;
+                camera.z += gz * camera_step;
             }
             if (keystate[SDL_SCANCODE_S]) {
-                camera_pos.x -= gx * camera_step;
-                camera_pos.z -= gz * camera_step;
+                camera.x -= gx * camera_step;
+                camera.z -= gz * camera_step;
             }
             if (keystate[SDL_SCANCODE_A]) {
-                camera_pos.x -= rx * camera_step;
-                camera_pos.z -= rz * camera_step;
+                camera.x -= rx * camera_step;
+                camera.z -= rz * camera_step;
             }
             if (keystate[SDL_SCANCODE_D]) {
-                camera_pos.x += rx * camera_step;
-                camera_pos.z += rz * camera_step;
+                camera.x += rx * camera_step;
+                camera.z += rz * camera_step;
             }
             if (keystate[SDL_SCANCODE_SPACE] && is_grounded) { // Jump impulse
-                ground_y = camera_pos.y; // capture current ground level
+                ground_y = camera.y; // capture current ground level
                 vertical_velocity = JUMP_IMPULSE;
                 is_grounded = false;
             }
@@ -303,10 +240,10 @@ int main(int argc, char** argv) {
         // Apply vertical physics (gravity) every frame. Positive velocity = upward.
         if (is_grounded) {
             vertical_velocity = 0.0f;
-            camera_pos.y = ground_y;
+            camera.y = ground_y;
         } else {
             vertical_velocity -= GRAVITY * dt;
-            camera_pos.y += vertical_velocity * dt;
+            camera.y += vertical_velocity * dt;
         }
 
         // while falling, apply horizontal momentum with damping
@@ -314,8 +251,8 @@ int main(int argc, char** argv) {
             // damping per second -> use exp decay for frame-rate independence
             const float MOM_DAMP_RATE = 1.5f; // larger = faster stop
             float damp = expf(-MOM_DAMP_RATE * dt);
-            camera_pos.x += fall_mom_x * dt;
-            camera_pos.z += fall_mom_z * dt;
+            camera.x += fall_mom_x * dt;
+            camera.z += fall_mom_z * dt;
             fall_mom_x *= damp;
             fall_mom_z *= damp;
         }
@@ -323,11 +260,11 @@ int main(int argc, char** argv) {
         // If not already falling, check bounds to start falling
         // Allow starting a fall even if the player is mid-jump so the jump naturally transitions to falling.
         if (!is_falling) {
-            if (camera_pos.x < GROUND_MIN_X || camera_pos.x > GROUND_MAX_X || camera_pos.z < GROUND_MIN_Z || camera_pos.z > GROUND_MAX_Z) {
+            if (camera.x < GROUND_MIN_X || camera.x > GROUND_MAX_X || camera.z < GROUND_MIN_Z || camera.z > GROUND_MAX_Z) {
                 // start falling: capture horizontal momentum based on current input and orientation
                 // compute orientation vectors
-                float yaw_rad_local = camera_pos.yaw * (M_PI / 180.0f);
-                float pitch_rad_local = camera_pos.pitch * (M_PI / 180.0f);
+                float yaw_rad_local = camera.yaw * (M_PI / 180.0f);
+                float pitch_rad_local = camera.pitch * (M_PI / 180.0f);
                 float fx_local = cosf(pitch_rad_local) * sinf(yaw_rad_local);
                 float fz_local = cosf(pitch_rad_local) * cosf(yaw_rad_local);
                 float rx_local = fz_local;
@@ -344,42 +281,42 @@ int main(int argc, char** argv) {
 
                 is_falling = true;
                 is_grounded = false;
-                fall_start_y = camera_pos.y;
+                fall_start_y = camera.y;
                 fall_mom_x = vx;
                 fall_mom_z = vz;
             }
         }
 
         // If player is within the ground bounds, treat the normal ground level as y=2.0f
-        if (camera_pos.x >= GROUND_MIN_X && camera_pos.x <= GROUND_MAX_X && camera_pos.z >= GROUND_MIN_Z && camera_pos.z <= GROUND_MAX_Z) {
+        if (camera.x >= GROUND_MIN_X && camera.x <= GROUND_MAX_X && camera.z >= GROUND_MIN_Z && camera.z <= GROUND_MAX_Z) {
             ground_y = 2.0f;
         }
 
         // Landing when airborne but not flagged as "falling" (e.g. jumping up and back down inside bounds)
         if (!is_falling && !is_grounded) {
-            if (camera_pos.x >= GROUND_MIN_X && camera_pos.x <= GROUND_MAX_X && camera_pos.z >= GROUND_MIN_Z && camera_pos.z <= GROUND_MAX_Z && camera_pos.y <= ground_y) {
+            if (camera.x >= GROUND_MIN_X && camera.x <= GROUND_MAX_X && camera.z >= GROUND_MIN_Z && camera.z <= GROUND_MAX_Z && camera.y <= ground_y) {
                 is_grounded = true;
                 vertical_velocity = 0.0f;
-                camera_pos.y = ground_y;
+                camera.y = ground_y;
             }
         }
 
         // If falling and we've returned within bounds and hit the ground level, land
         if (is_falling) {
-            if (camera_pos.x >= GROUND_MIN_X && camera_pos.x <= GROUND_MAX_X && camera_pos.z >= GROUND_MIN_Z && camera_pos.z <= GROUND_MAX_Z && camera_pos.y <= ground_y) {
+            if (camera.x >= GROUND_MIN_X && camera.x <= GROUND_MAX_X && camera.z >= GROUND_MIN_Z && camera.z <= GROUND_MAX_Z && camera.y <= ground_y) {
                 is_falling = false;
                 vertical_velocity = 0.0f;
                 is_grounded = true;
-                camera_pos.y = ground_y;
+                camera.y = ground_y;
             }
             // check fall reset distance and respawn instead of quitting
-            if (fall_start_y - camera_pos.y >= FALL_RESET_DISTANCE) {
+            if (fall_start_y - camera.y >= FALL_RESET_DISTANCE) {
                 // reset camera to safe high position and then continue falling to y=2.0
-                camera_pos.x = 0.0f;
-                camera_pos.y = 15.0f;
-                camera_pos.z = 0.0f;
-                camera_pos.yaw = 0.0f;
-                camera_pos.pitch = 0.0f;
+                camera.x = 0.0f;
+                camera.y = 15.0f;
+                camera.z = 0.0f;
+                camera.yaw = 0.0f;
+                camera.pitch = 0.0f;
                 // clear horizontal momentum, start falling from reset height
                 fall_mom_x = 0.0f;
                 fall_mom_z = 0.0f;
@@ -388,7 +325,7 @@ int main(int argc, char** argv) {
                 // set target ground level to 2.0 and start falling
                 ground_y = 2.0f;
                 is_falling = true;
-                fall_start_y = camera_pos.y;
+                fall_start_y = camera.y;
             }
         }
 
@@ -403,33 +340,16 @@ int main(int argc, char** argv) {
         }
         float bob_offset = walk_amp * sinf(walk_phase);
         // apply bob to camera for this frame only (don't modify permanent camera_pos when jumping)
-        float saved_camera_y = camera_pos.y;
-        camera_pos.y += bob_offset;
+        float saved_camera_y = camera.y;
+        camera.y += bob_offset;
 
-        // Rotate one cube in the wall grid for visual interest
-        // Parameters:
-        //   &cube_wall.arr[0]                 - pointer to the cube to rotate
-        //   (Point3D){0.0f, 1.0f, 0.0f}      - rotation axis (Y axis, up direction)
-        //   dt * (float)M_PI / 4.0f         - rotation angle in radians for this frame
-        //                                     (rotation speed = PI/4 rad/s scaled by dt)
-        //   (Point3D){0.0f, 0.0f, DEPTH_Z}  - center point (world coords) to rotate around
-        for (size_t ri = 0; ri < cube_wall.size; ++ri) {
-            rotate_cube(&cube_wall.arr[ri], rotation_vectors[ri], dt * (float)M_PI / 2.0f);
-        }
-
+        // Clear screen
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         SDL_RenderClear(renderer);
 
-        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
         // Draw all cubes in the array
-        for (size_t ci = 0; ci < cube_wall.size; ++ci) {
-            draw_cube(&cube_wall.arr[ci]);
-        }
-
-        SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
-        // Draw all cubes in the array
-        for (size_t ci = 0; ci < cube_ground.size; ++ci) {
-            draw_cube(&cube_ground.arr[ci]);
+        for (size_t ci = 0; ci < cubes.cur_size; ++ci) {
+            draw_cube(cubes.arr[ci]);
         }
 
         // Draw static crosshair in the center of the screen
@@ -448,8 +368,8 @@ int main(int argc, char** argv) {
                 snprintf(stats_text, sizeof(stats_text),
                         "FPS: %d\nPos.: (x:%.2f, y:%.2f, z:%.2f)\nYaw: %.1f Pitch: %.1f\nFOV: %.1f degrees\nSpeed: %.2f u/s",
                         (int)(1.0f / dt),
-                        camera_pos.x, camera_pos.y, camera_pos.z,
-                        camera_pos.yaw, camera_pos.pitch,
+                        camera.x, camera.y, camera.z,
+                        camera.yaw, camera.pitch,
                         fov_display,
                         move_speed
                 );
@@ -483,7 +403,7 @@ int main(int argc, char** argv) {
         SDL_RenderPresent(renderer);
 
         // restore camera Y after rendering
-        camera_pos.y = saved_camera_y;
+        camera.y = saved_camera_y;
 
         Uint32 frame_time = SDL_GetTicks() - frame_start;
         if (frame_time < FRAME_DELAY) {
@@ -565,6 +485,7 @@ void draw_cube(const Cube* cube) {
         exit(EXIT_FAILURE);
     }
     
+    SDL_SetRenderDrawColor(renderer, cube->color.r, cube->color.g, cube->color.b, cube->color.a);
     Point2D projected[8];
     bool skip_point[8] = { false };
     // Initialize projected points to safe defaults
@@ -573,8 +494,8 @@ void draw_cube(const Cube* cube) {
         projected[i].y = 0;
     }
     // Precompute camera rotation
-    float yaw_rad = camera_pos.yaw * (M_PI / 180.0f);
-    float pitch_rad = camera_pos.pitch * (M_PI / 180.0f);
+    float yaw_rad = camera.yaw * (M_PI / 180.0f);
+    float pitch_rad = camera.pitch * (M_PI / 180.0f);
     float cos_yaw = cosf(yaw_rad);
     float sin_yaw = sinf(yaw_rad);
     float cos_pitch = cosf(pitch_rad);
@@ -582,9 +503,9 @@ void draw_cube(const Cube* cube) {
 
     for (size_t i = 0; i < 8; ++i) {
         // World -> camera space: translate then rotate by inverse camera yaw/pitch
-        float rel_x = cube->points[i].x - camera_pos.x;
-        float rel_y = cube->points[i].y - camera_pos.y;
-        float rel_z = cube->points[i].z - camera_pos.z;
+        float rel_x = cube->points[i].x - camera.x;
+        float rel_y = cube->points[i].y - camera.y;
+        float rel_z = cube->points[i].z - camera.z;
 
         // Apply inverse yaw rotation (rotate by -yaw)
         float x1 =  cos_yaw * rel_x - sin_yaw * rel_z;
@@ -599,8 +520,8 @@ void draw_cube(const Cube* cube) {
             continue;
         }
 
-        float x_ndc = (x1 * camera_f / ASPECT_RATIO) / z2;
-        float y_ndc = (y2 * camera_f) / z2;
+        float x_ndc = (x1 * camera.focal_length / ASPECT_RATIO) / z2;
+        float y_ndc = (y2 * camera.focal_length) / z2;
         projected[i].x = (int)SDL_roundf((x_ndc + 1.0f) * 0.5f * WIDTH);
         projected[i].y = (int)SDL_roundf((1.0f - (y_ndc + 1.0f) * 0.5f) * HEIGHT);
     }
