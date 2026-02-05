@@ -1,10 +1,15 @@
+#include <stdbool.h>
 #include <stdint.h>
 
 // Global consts for window dimensions and frame rate
 const int WIDTH = 1280;
 const int HEIGHT = 720;
-const int TARGET_FPS = 120;
+const int TARGET_FPS = 240;
 const uint32_t FRAME_DELAY = (1000u / TARGET_FPS);
+
+// Global consts for stats overlay
+const bool OVERLAY_ON = true;
+const float OVERLAY_INTERVAL = 0.1f;
 
 // Global vars/consts for camera
 const float ASPECT_RATIO = (float)WIDTH / (float)HEIGHT;

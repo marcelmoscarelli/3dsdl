@@ -18,14 +18,16 @@
 Camera camera = {0.0f, 2.0f, 0.0f, 0.0f, 0.0f, -0.15611995216165922};
 
 // Globals for SDL
+static const SDL_Color WHITE = {255, 255, 255, 255};
 SDL_Renderer* renderer = NULL;
 static SDL_Window* window = NULL;
-static const SDL_Color WHITE = { 255, 255, 255, 255 };
+static SDL_Texture* overlay_texture = NULL;
 static TTF_Font* font = NULL;
-static bool overlay = true;
 
 // Function prototypes
 bool init();
+void draw_crosshair(int thickness, int size);
+void draw_overlay(float dt, float fov_display, float move_speed);
 TTF_Font* open_preferred_font(int ptsize);
 
 // Main function
@@ -126,10 +128,6 @@ int main(int argc, char** argv) {
     bool running = true;
     SDL_Event event;
     Uint32 last_ticks = SDL_GetTicks();
-    // Stats text texture cache to avoid TTF overhead every frame
-    SDL_Texture* stats_texture = NULL;
-    SDL_Rect stats_rect = { 15, 15, 0, 0 };
-    int stats_frame_count = 0;
     while (running) {
         Uint32 frame_start = SDL_GetTicks();
 
@@ -166,7 +164,7 @@ int main(int argc, char** argv) {
 
         // WASD controls now move the camera relative to view (crosshair)
         Uint32 now = SDL_GetTicks();
-        float dt = (now - last_ticks) / 1000.0f;
+        float dt = (now - last_ticks) / 1000.0f; // delta time in seconds
         last_ticks = now;
 
         const Uint8* keystate = SDL_GetKeyboardState(NULL);
@@ -349,50 +347,11 @@ int main(int argc, char** argv) {
         }
 
         // Draw static crosshair in the center of the screen
-        int cx = WIDTH / 2;
-        int cy = HEIGHT / 2;
-        int half = 8; // crosshair half-length
-        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-        SDL_RenderDrawLine(renderer, cx - half, cy, cx + half, cy);
-        SDL_RenderDrawLine(renderer, cx, cy - half, cx, cy + half);
+        draw_crosshair(3, 17);
 
         // Show stats in the top-left corner (update only every 5 frames)
-        if (overlay) {
-            stats_frame_count++;
-            if (stats_texture == NULL || (stats_frame_count % 5) == 0) {
-                char stats_text[256];
-                snprintf(stats_text, sizeof(stats_text),
-                        "FPS: %d\nPos.: (x:%.2f, y:%.2f, z:%.2f)\nYaw: %.1f Pitch: %.1f\nFOV: %.1f degrees\nSpeed: %.2f u/s",
-                        (int)(1.0f / dt),
-                        camera.x, camera.y, camera.z,
-                        camera.yaw, camera.pitch,
-                        fov_display,
-                        move_speed
-                );
-                SDL_Color text_color = { 255, 255, 255, 255 };
-                SDL_Surface* text_surface = TTF_RenderText_Blended_Wrapped(font, stats_text, text_color, 350);
-                if (text_surface) {
-                    // replace previous texture
-                    if (stats_texture) SDL_DestroyTexture(stats_texture);
-                    stats_texture = SDL_CreateTextureFromSurface(renderer, text_surface);
-                    if (stats_texture) {
-                        SDL_SetTextureBlendMode(stats_texture, SDL_BLENDMODE_BLEND);
-                    }
-                    stats_rect.w = text_surface->w;
-                    stats_rect.h = text_surface->h;
-                    SDL_FreeSurface(text_surface);
-                }
-            }
-            if (stats_texture) {
-                // draw semi-transparent black background box behind the stats text
-                SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
-                SDL_Color bg_col = { 0, 0, 0, 96 };
-                SDL_SetRenderDrawColor(renderer, bg_col.r, bg_col.g, bg_col.b, bg_col.a);
-                SDL_Rect bg_rect = { stats_rect.x - 8, stats_rect.y - 8, stats_rect.w + 16, stats_rect.h + 16 };
-                SDL_RenderFillRect(renderer, &bg_rect);
-
-                SDL_RenderCopy(renderer, stats_texture, NULL, &stats_rect);
-            }
+        if (OVERLAY_ON) {
+            draw_overlay(dt, fov_display, move_speed);
         }
 
         // Render present
@@ -401,12 +360,14 @@ int main(int argc, char** argv) {
         // restore camera Y after rendering
         camera.y = saved_camera_y;
 
+        // FPS capping
         Uint32 frame_time = SDL_GetTicks() - frame_start;
         if (frame_time < FRAME_DELAY) {
             SDL_Delay(FRAME_DELAY - frame_time);
         }
     }
 
+    // Cleanup
     TTF_CloseFont(font);
     TTF_Quit();
     SDL_DestroyRenderer(renderer);
@@ -444,14 +405,96 @@ bool init() {
         return false;
     }
 
-    font = open_preferred_font(16);
-    if (!font) {
-        printf("TTF_OpenFont Error: overlay disabled (%s)\n", TTF_GetError());
-        overlay = false;
+    if (OVERLAY_ON) {
+        font = open_preferred_font(16);
+        if (!font) {
+            printf("TTF_OpenFont Error: %s\n", TTF_GetError());
+            TTF_Quit();
+            SDL_DestroyRenderer(renderer);
+            SDL_DestroyWindow(window);
+            SDL_Quit();
+            return false;
+        }
     }
 
     return true;
 }
+
+// Draw crosshair in the center of the screen
+void draw_crosshair(int thickness, int size) {
+    if (thickness <= 0 || size <= 0) {
+        return;
+    }
+    // Round up to next odd number if even to ensure a single central pixel
+    if ((thickness & 1) == 0) {
+        thickness += 1;
+    }
+    if ((size & 1) == 0) {
+        size += 1;
+    }
+
+    int cx = WIDTH / 2;
+    int cy = HEIGHT / 2;
+    int half = size / 2;
+    int t_half = thickness / 2;
+
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+    // Draw horizontal band of `thickness` pixels centered at cy
+    for (int dy = -t_half; dy <= t_half; ++dy) {
+        SDL_RenderDrawLine(renderer, cx - half, cy + dy, cx + half, cy + dy);
+    }
+    // Draw vertical band of `thickness` pixels centered at cx
+    for (int dx = -t_half; dx <= t_half; ++dx) {
+        SDL_RenderDrawLine(renderer, cx + dx, cy - half, cx + dx, cy + half);
+    }
+}
+
+void draw_overlay(float dt, float fov_display, float move_speed) {
+    // Recreate/update the texture on a time interval (seconds)
+    static float overlay_acc = 0.0f;
+    overlay_acc += dt;
+    if (overlay_acc >= OVERLAY_INTERVAL) {
+        overlay_acc -= OVERLAY_INTERVAL; // Preserve remainder
+        if (overlay_texture) {
+            SDL_DestroyTexture(overlay_texture);
+            overlay_texture = NULL;
+        }
+        char stats_text[256];
+        snprintf(stats_text, sizeof(stats_text),
+                "FPS: %d\nPos.: (x:%.2f, y:%.2f, z:%.2f)\nYaw: %.1f Pitch: %.1f\nFOV: %.1f degrees\nSpeed: %.2f u/s",
+                (int)(dt > 0.0f ? (1.0f / dt) : 0),
+                camera.x, camera.y, camera.z,
+                camera.yaw, camera.pitch,
+                fov_display,
+                move_speed
+        );
+        SDL_Color overlay_color = {255, 255, 255, 255};
+        SDL_Surface* overlay_surface = TTF_RenderText_Blended_Wrapped(font, stats_text, overlay_color, 350);
+        if (overlay_surface) {
+            SDL_Texture* new_tex = SDL_CreateTextureFromSurface(renderer, overlay_surface);
+            SDL_FreeSurface(overlay_surface);
+            if (new_tex) {
+                overlay_texture = new_tex;
+                SDL_SetTextureBlendMode(overlay_texture, SDL_BLENDMODE_BLEND);
+            }
+        }
+    }
+
+    // Always draw the overlay every frame (texture is updated less frequently)
+    if (overlay_texture) {
+        int tex_w = 0, tex_h = 0;
+        SDL_QueryTexture(overlay_texture, NULL, NULL, &tex_w, &tex_h);
+        SDL_Rect stats_rect = {15, 15, tex_w, tex_h};
+
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+        SDL_Color bg_col = {0, 0, 0, 96};
+        SDL_SetRenderDrawColor(renderer, bg_col.r, bg_col.g, bg_col.b, bg_col.a);
+        SDL_Rect bg_rect = {stats_rect.x - 8, stats_rect.y - 8, stats_rect.w + 16, stats_rect.h + 16};
+        SDL_RenderFillRect(renderer, &bg_rect);
+        SDL_RenderCopy(renderer, overlay_texture, NULL, &stats_rect);
+    }
+}
+
 
 // Try loading from a small list of monospace fonts
 TTF_Font* open_preferred_font(int ptsize) {

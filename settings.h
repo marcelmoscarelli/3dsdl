@@ -9,6 +9,10 @@ extern const int HEIGHT;
 extern const int TARGET_FPS;
 extern const uint32_t FRAME_DELAY;
 
+// Global consts for stats overlay
+extern const bool OVERLAY_ON;
+extern const float OVERLAY_INTERVAL;
+
 // Global consts for camera
 extern const float ASPECT_RATIO;
 extern const float FOV_STEP;
