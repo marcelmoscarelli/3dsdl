@@ -38,12 +38,12 @@ void overlay_init(SDL_Window* window, SDL_Renderer* renderer) {
         std::exit(EXIT_FAILURE);
     }
     std::string font_path = base_str + "../assets/DejaVuSansMono.ttf";
-    //std::cout << "Font path: " << font_path << std::endl;
     ImFont* font = ImGui::GetIO().Fonts->AddFontFromFileTTF(font_path.c_str(), 18.0f);
     if (font) {
         ImGui::GetIO().FontDefault = font;
+        std::cout << "Font loaded from: " << font_path << std::endl;
     } else {
-        std::cout << "ImGui::GetIO().Fonts->AddFontFromFileTTF() failed to load font at path: " << font_path << std::endl;
+        std::cout << "AddFontFromFileTTF() failed to load font at path: " << font_path << std::endl;
         exit(EXIT_FAILURE);
     }
 
@@ -73,7 +73,7 @@ void overlay_newframe() {
     // Small top-left overlay window
     ImGui::SetNextWindowBgAlpha(0.35f);
     ImGui::SetNextWindowPos(ImVec2(10,10), ImGuiCond_Always);
-    ImGui::Begin("Overlay", NULL, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove /*| ImGuiWindowFlags_NoTitleBar*/);
+    ImGui::Begin("Stats Overlay", NULL, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove /*| ImGuiWindowFlags_NoTitleBar*/);
     ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
     ImGui::Text("Pos.: (x:%.2f, y:%.2f, z:%.2f)", g_stats.x, g_stats.y, g_stats.z);
     ImGui::Text("Yaw: %.1f Pitch: %.1f", g_stats.yaw, g_stats.pitch);
