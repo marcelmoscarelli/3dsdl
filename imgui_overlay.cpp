@@ -1,5 +1,9 @@
 // Simple C-callable wrapper to use Dear ImGui with an SDL_Renderer-based backend.
 #include <SDL2/SDL.h>
+#include <algorithm>
+#include <cstdlib>
+#include <iostream>
+#include <string>
 #include "imgui/imgui.h"
 #include "imgui/backends/imgui_impl_sdl2.h"
 #include "imgui/backends/imgui_impl_sdlrenderer2.h"
@@ -25,9 +29,22 @@ void overlay_init(SDL_Window* window, SDL_Renderer* renderer) {
     ImGui::StyleColorsDark();
 
     // Load an external font
-    ImFont* font = ImGui::GetIO().Fonts->AddFontFromFileTTF("../assets/DejaVuSansMono.ttf", 18.0f);
+    char* base = SDL_GetBasePath();
+    std::string base_str(base);
+    SDL_free(base);
+    std::replace(base_str.begin(), base_str.end(), '\\', '/'); // replace backslashes with forward slashes (not really needed, but...)
+    if (base_str.empty()) {
+        std::cout << "SDL_GetBasePath failed: " << SDL_GetError() << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
+    std::string font_path = base_str + "../assets/DejaVuSansMono.ttf";
+    //std::cout << "Font path: " << font_path << std::endl;
+    ImFont* font = ImGui::GetIO().Fonts->AddFontFromFileTTF(font_path.c_str(), 18.0f);
     if (font) {
         ImGui::GetIO().FontDefault = font;
+    } else {
+        std::cout << "ImGui::GetIO().Fonts->AddFontFromFileTTF() failed to load font at path: " << font_path << std::endl;
+        exit(EXIT_FAILURE);
     }
 
     // Initialize platform/renderer backends for SDL renderer
