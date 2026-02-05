@@ -90,6 +90,29 @@ void rotate_cube(Cube* cube, Point3D axis, float angle) {
     }
 }
 
+// Draw a line with integer thickness by drawing several parallel lines.
+static void draw_line_thickness(int x1, int y1, int x2, int y2, int thickness) {
+    if (thickness < 1) {
+        thickness = 1;
+    }
+    int dx = x2 - x1;
+    int dy = y2 - y1;
+    int start = -(thickness / 2);
+    int end = start + thickness - 1;
+
+    if (abs(dx) > abs(dy)) {
+        // More horizontal: offset in Y
+        for (int off = start; off <= end; ++off) {
+            SDL_RenderDrawLine(renderer, x1, y1 + off, x2, y2 + off);
+        }
+    } else {
+        // More vertical (or equal): offset in X
+        for (int off = start; off <= end; ++off) {
+            SDL_RenderDrawLine(renderer, x1 + off, y1, x2 + off, y2);
+        }
+    }
+}
+
 // Draw the cube by projecting its 3D points to 2D screen space according to the current camera parameters
 void draw_cube(const Cube* cube) {
     if (!cube) {
@@ -135,17 +158,18 @@ void draw_cube(const Cube* cube) {
     }
 
     // Draw cube edges if both endpoints are visible
+    int thickness = 3;
     SDL_SetRenderDrawColor(renderer, cube->color.r, cube->color.g, cube->color.b, cube->color.a);
     for (size_t i = 0; i < 4; ++i) {
         int next_i = (i + 1) % 4;
         if (!skip_point[i] && !skip_point[next_i]) {
-            SDL_RenderDrawLine(renderer, (int)projected[i].x, (int)projected[i].y, (int)projected[next_i].x, (int)projected[next_i].y);
+            draw_line_thickness((int)projected[i].x, (int)projected[i].y, (int)projected[next_i].x, (int)projected[next_i].y, thickness);
         }
         if (!skip_point[i + 4] && !skip_point[next_i + 4]) {
-            SDL_RenderDrawLine(renderer, (int)projected[i + 4].x, (int)projected[i + 4].y, (int)projected[next_i + 4].x, (int)projected[next_i + 4].y);
+            draw_line_thickness((int)projected[i + 4].x, (int)projected[i + 4].y, (int)projected[next_i + 4].x, (int)projected[next_i + 4].y, thickness);
         }
         if (!skip_point[i] && !skip_point[i + 4]) {
-            SDL_RenderDrawLine(renderer, (int)projected[i].x, (int)projected[i].y, (int)projected[i + 4].x, (int)projected[i + 4].y);
+            draw_line_thickness((int)projected[i].x, (int)projected[i].y, (int)projected[i + 4].x, (int)projected[i + 4].y, thickness);
         }
     }
 }

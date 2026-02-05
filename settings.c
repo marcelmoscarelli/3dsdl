@@ -2,9 +2,9 @@
 #include <stdint.h>
 
 // Global consts for window dimensions and frame rate
-const int WIDTH = 1280;
-const int HEIGHT = 720;
-const int TARGET_FPS = 240;
+const int WIDTH = 1600;
+const int HEIGHT = 900;
+const int TARGET_FPS = 120;
 const uint32_t FRAME_DELAY = (1000u / TARGET_FPS);
 
 // Global consts for stats overlay

@@ -4,7 +4,6 @@
 #include <stdbool.h>
 
 #include <SDL2/SDL.h>
-#include <SDL_ttf.h>
 
 #include "cube.h"
 #include "data_structures.h"
@@ -18,17 +17,20 @@
 Camera camera = {0.0f, 2.0f, 0.0f, 0.0f, 0.0f, -0.15611995216165922};
 
 // Globals for SDL
-static const SDL_Color WHITE = {255, 255, 255, 255};
 SDL_Renderer* renderer = NULL;
 static SDL_Window* window = NULL;
-static SDL_Texture* overlay_texture = NULL;
-static TTF_Font* font = NULL;
 
 // Function prototypes
 bool init();
 void draw_crosshair(int thickness, int size);
 void draw_overlay(float dt, float fov_display, float move_speed);
-TTF_Font* open_preferred_font(int ptsize);
+// Dear ImGui overlay (implemented in C++ wrapper)
+void overlay_init(SDL_Window* window, SDL_Renderer* renderer);
+void overlay_process_event(SDL_Event* event);
+void overlay_newframe();
+void overlay_render();
+void overlay_shutdown();
+void overlay_set_stats(float x, float y, float z, float yaw, float pitch, float fov, float speed);
 
 // Main function
 int main(int argc, char** argv) {
@@ -47,10 +49,10 @@ int main(int argc, char** argv) {
     init_cube_darray(&cubes, 1000);
     
     // Ground grid parameters (100x100, cubes glued together, size 0.25)
-    const int GROUND_W = 50;
-    const int GROUND_H = 50;
-    const float GROUND_CUBE_SIZE = 0.5f;
-    const float GROUND_SPACING = 0.0f; // glued
+    const int GROUND_W = 25;
+    const int GROUND_H = 25;
+    const float GROUND_CUBE_SIZE = 1.0f;
+    const float GROUND_SPACING = 0.1f; // glued
 
     const int ground_total = GROUND_W * GROUND_H;
     for (int i = 0; i < ground_total; ++i) {
@@ -72,7 +74,7 @@ int main(int argc, char** argv) {
         Cube* new_cube = (Cube*)malloc(sizeof(Cube));
         
         make_cube(new_cube, GROUND_CUBE_SIZE, center);
-        new_cube->color = WHITE;
+        new_cube->color = (SDL_Color){0, 255, 0, 255};
 
         // Squash cubes flat (become 2D tiles)
         new_cube->points[0] = new_cube->points[2];
@@ -133,7 +135,9 @@ int main(int argc, char** argv) {
 
         // Event handling
         while (SDL_PollEvent(&event)) {
-            switch (event.type) {
+                // Give ImGui a chance to handle events first
+                overlay_process_event(&event);
+                switch (event.type) {
                 case SDL_QUIT:
                     running = false;
                     break;
@@ -349,10 +353,12 @@ int main(int argc, char** argv) {
         // Draw static crosshair in the center of the screen
         draw_crosshair(3, 17);
 
-        // Show stats in the top-left corner (update only every 5 frames)
+        // ImGui overlay: update stats, start a new frame, let it draw UI, then render on top
         if (OVERLAY_ON) {
-            draw_overlay(dt, fov_display, move_speed);
+            overlay_set_stats(camera.x, camera.y, camera.z, camera.yaw, camera.pitch, fov_display, move_speed);
         }
+        overlay_newframe();
+        overlay_render();
 
         // Render present
         SDL_RenderPresent(renderer);
@@ -368,8 +374,9 @@ int main(int argc, char** argv) {
     }
 
     // Cleanup
-    TTF_CloseFont(font);
-    TTF_Quit();
+    // Shutdown ImGui overlay if present
+    overlay_shutdown();
+
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
@@ -397,24 +404,8 @@ bool init() {
         return false;
     }
 
-    if (TTF_Init() != 0) {
-        printf("TTF_Init Error: %s\n", TTF_GetError());
-        SDL_DestroyRenderer(renderer);
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return false;
-    }
-
     if (OVERLAY_ON) {
-        font = open_preferred_font(16);
-        if (!font) {
-            printf("TTF_OpenFont Error: %s\n", TTF_GetError());
-            TTF_Quit();
-            SDL_DestroyRenderer(renderer);
-            SDL_DestroyWindow(window);
-            SDL_Quit();
-            return false;
-        }
+        overlay_init(window, renderer);
     }
 
     return true;
@@ -447,82 +438,4 @@ void draw_crosshair(int thickness, int size) {
     for (int dx = -t_half; dx <= t_half; ++dx) {
         SDL_RenderDrawLine(renderer, cx + dx, cy - half, cx + dx, cy + half);
     }
-}
-
-void draw_overlay(float dt, float fov_display, float move_speed) {
-    // Recreate/update the texture on a time interval (seconds)
-    static float overlay_acc = 0.0f;
-    overlay_acc += dt;
-    if (overlay_acc >= OVERLAY_INTERVAL) {
-        overlay_acc -= OVERLAY_INTERVAL; // Preserve remainder
-        if (overlay_texture) {
-            SDL_DestroyTexture(overlay_texture);
-            overlay_texture = NULL;
-        }
-        char stats_text[256];
-        snprintf(stats_text, sizeof(stats_text),
-                "FPS: %d\nPos.: (x:%.2f, y:%.2f, z:%.2f)\nYaw: %.1f Pitch: %.1f\nFOV: %.1f degrees\nSpeed: %.2f u/s",
-                (int)(dt > 0.0f ? (1.0f / dt) : 0),
-                camera.x, camera.y, camera.z,
-                camera.yaw, camera.pitch,
-                fov_display,
-                move_speed
-        );
-        SDL_Color overlay_color = {255, 255, 255, 255};
-        SDL_Surface* overlay_surface = TTF_RenderText_Blended_Wrapped(font, stats_text, overlay_color, 350);
-        if (overlay_surface) {
-            SDL_Texture* new_tex = SDL_CreateTextureFromSurface(renderer, overlay_surface);
-            SDL_FreeSurface(overlay_surface);
-            if (new_tex) {
-                overlay_texture = new_tex;
-                SDL_SetTextureBlendMode(overlay_texture, SDL_BLENDMODE_BLEND);
-            }
-        }
-    }
-
-    // Always draw the overlay every frame (texture is updated less frequently)
-    if (overlay_texture) {
-        int tex_w = 0, tex_h = 0;
-        SDL_QueryTexture(overlay_texture, NULL, NULL, &tex_w, &tex_h);
-        SDL_Rect stats_rect = {15, 15, tex_w, tex_h};
-
-        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
-        SDL_Color bg_col = {0, 0, 0, 96};
-        SDL_SetRenderDrawColor(renderer, bg_col.r, bg_col.g, bg_col.b, bg_col.a);
-        SDL_Rect bg_rect = {stats_rect.x - 8, stats_rect.y - 8, stats_rect.w + 16, stats_rect.h + 16};
-        SDL_RenderFillRect(renderer, &bg_rect);
-        SDL_RenderCopy(renderer, overlay_texture, NULL, &stats_rect);
-    }
-}
-
-
-// Try loading from a small list of monospace fonts
-TTF_Font* open_preferred_font(int ptsize) {
-    #ifdef _WIN32
-    const char* consolas_paths[] = {"C:/Windows/Fonts/Consolas Regular.ttf", "C:/Windows/Fonts/consola.TTF", NULL};
-    const char* courier_paths[]  = {"C:/Windows/Fonts/Courier New Regular.ttf", "C:/Windows/Fonts/cour.ttf", NULL};
-    const char* lucida_paths[]   = {"C:/Windows/Fonts/Lucida Console Regular.ttf", "C:/Windows/Fonts/lucon.ttf", NULL};
-    const char** families[] = {consolas_paths, courier_paths, lucida_paths};
-    #else
-    const char* dejavu_paths[]   = {"/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", "/usr/local/share/fonts/DejaVuSansMono.ttf", NULL};
-    const char* courier_paths[]  = {"/usr/share/fonts/truetype/msttcorefonts/Courier_New.ttf", "/usr/share/fonts/truetype/msttcorefonts/Courier New.ttf", "/usr/share/fonts/truetype/freefont/FreeMono.ttf", NULL};
-    const char* lucida_paths[]   = {"/usr/share/fonts/truetype/lucida/LucidaConsole.ttf", "/usr/share/fonts/truetype/msttcorefonts/Lucida_Console.ttf", NULL};
-    const char** families[] = {dejavu_paths, courier_paths, lucida_paths};
-    #endif
-
-    for (size_t f = 0; f < (sizeof(families) / sizeof(families[0])); ++f) {
-        const char** paths = families[f];
-        for (size_t i = 0; paths[i] != NULL; ++i) {
-            const char* p = paths[i];
-            if (!p) { // should not happen
-                continue;
-            }
-            TTF_Font* font = TTF_OpenFont(p, ptsize);
-            if (font) {
-                return font;
-            }
-        }
-    }
-
-    return NULL;
 }
