@@ -4,6 +4,11 @@
 #include <stdlib.h>
 #include "data_structures.h"
 
+#include <math.h>
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 // Define the points of an y axis-aligned cube centered at `center` with given `size`
 void make_cube(Cube* cube, float size, Point_3D center, SDL_Color color) {
     if (!cube) {
