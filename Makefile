@@ -12,7 +12,7 @@ IMGUI_BACKENDS = $(IMGUI_DIR)/backends/imgui_impl_sdl2.cpp $(IMGUI_DIR)/backends
 IMGUI_CORE = $(IMGUI_DIR)/imgui.cpp $(IMGUI_DIR)/imgui_draw.cpp $(IMGUI_DIR)/imgui_tables.cpp $(IMGUI_DIR)/imgui_widgets.cpp
 
 BINDIR = bin
-SRC_C = main.c cube.c data_structures.c settings.c
+SRC_C = main.c rendering.c data_structures.c settings.c
 SRC_CPP = imgui_overlay.cpp $(IMGUI_CORE) $(IMGUI_BACKENDS)
 OBJ_C = $(patsubst %.c,%.o,$(SRC_C))
 # Keep path prefixes for ImGui sources so objects are built from correct locations

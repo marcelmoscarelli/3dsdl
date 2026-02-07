@@ -2,8 +2,81 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "cube.h"
 #include "data_structures.h"
+
+// Define the points of an y axis-aligned cube centered at `center` with given `size`
+void make_cube(Cube* cube, float size, Point_3D center, SDL_Color color) {
+    if (!cube) {
+        printf("make_cube(): NULL cube pointer. Exiting!\n");
+        exit(EXIT_FAILURE);
+    }
+    float half_size = size / 2.0f;
+
+    // Front face
+    cube->points[0] = (Point_3D){center.x - half_size, center.y - half_size, center.z - half_size}; // A
+    cube->points[1] = (Point_3D){center.x + half_size, center.y - half_size, center.z - half_size}; // B
+    cube->points[2] = (Point_3D){center.x + half_size, center.y + half_size, center.z - half_size}; // C
+    cube->points[3] = (Point_3D){center.x - half_size, center.y + half_size, center.z - half_size}; // D
+
+    // Back face
+    cube->points[4] = (Point_3D){center.x - half_size, center.y - half_size, center.z + half_size}; // E
+    cube->points[5] = (Point_3D){center.x + half_size, center.y - half_size, center.z + half_size}; // F
+    cube->points[6] = (Point_3D){center.x + half_size, center.y + half_size, center.z + half_size}; // G
+    cube->points[7] = (Point_3D){center.x - half_size, center.y + half_size, center.z + half_size}; // H
+
+    cube->color = color;
+}
+
+// Convert world coordinate to grid coordinate.
+int world_to_grid_coord(float world, float step, float offset) {
+    return (int)lroundf((world + offset) / step);
+}
+
+// Convert world coordinate to grid index using floor.
+int world_to_grid_index_floor(float world, float step, float offset) {
+    float half = step * 0.5f;
+    return (int)floorf((world + offset + half) / step);
+}
+
+// Create an AABB from player parameters.
+AABB player_aabb(float px, float py, float pz, float radius, float height, float eye_height) {
+    float min_y = py - eye_height;
+    AABB box = {
+        .min_x = px - radius,
+        .max_x = px + radius,
+        .min_y = min_y,
+        .max_y = min_y + height,
+        .min_z = pz - radius,
+        .max_z = pz + radius
+    };
+    return box;
+}
+
+// Check if an AABB intersects with any cubes in the map.
+bool aabb_intersects_map(const Cube_Map* map, AABB box, float step, float offset_x, float offset_y, float offset_z) {
+    int min_x = world_to_grid_index_floor(box.min_x, step, offset_x);
+    int max_x = world_to_grid_index_floor(box.max_x, step, offset_x);
+    int min_y = world_to_grid_index_floor(box.min_y, step, offset_y);
+    int max_y = world_to_grid_index_floor(box.max_y, step, offset_y);
+    int min_z = world_to_grid_index_floor(box.min_z, step, offset_z);
+    int max_z = world_to_grid_index_floor(box.max_z, step, offset_z);
+
+    for (int gx = min_x; gx <= max_x; ++gx) {
+        for (int gy = min_y; gy <= max_y; ++gy) {
+            for (int gz = min_z; gz <= max_z; ++gz) {
+                Cube_Key key = {
+                    .x = gx,
+                    .y = gy,
+                    .z = gz
+                };
+                if (cube_map_get(map, key)) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
 
 // Hashing for Cube_key
 static uint64_t cube_key_hash(Cube_Key key) {

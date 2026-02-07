@@ -14,9 +14,9 @@ extern const bool OVERLAY_ON;
 
 // Global consts for camera
 extern const float ASPECT_RATIO;
-extern const float FOV_STEP;
-extern const float FOV_MIN;
-extern const float FOV_MAX;
+extern const float FOV;
+extern const float SPRINT_FOV;
+extern const float FOV_LERP_SPEED;
 extern const float PITCH_MAX;
 extern const float PITCH_MIN;
 
@@ -33,5 +33,12 @@ extern const float PLAYER_HEIGHT;
 extern const float PLAYER_EYE_HEIGHT;
 extern const float PLAYER_RADIUS;
 extern const float GROUND_EPS;
+
+// Player walking parameters
+extern const float WALK_AMPLITUDE;
+extern const float WALK_FREQUENCY;
+extern const float WALK_SMOOTH;
+extern const float BASE_SPEED;
+extern const float SPRINT_MULT;
 
 #endif
