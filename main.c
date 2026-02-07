@@ -1,3 +1,10 @@
+/* TODO
+- Keep cube grid map as authoritative data.
+- Build a render list each frame (visible cube faces only).
+- Sort that list by depth (camera space Z).
+- Rasterize triangles.
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
@@ -8,6 +15,7 @@
 #include "cube.h"
 #include "data_structures.h"
 #include "settings.h"
+#include "imgui_overlay.h"
 
 #include <math.h>
 #ifndef M_PI
@@ -24,13 +32,8 @@ static SDL_Window* window = NULL;
 bool init();
 void draw_crosshair(int thickness, int size);
 void draw_overlay(float dt, float fov_display, float move_speed);
+
 // Dear ImGui overlay (implemented in C++ wrapper)
-void overlay_init(SDL_Window* window, SDL_Renderer* renderer);
-void overlay_process_event(SDL_Event* event);
-void overlay_newframe();
-void overlay_render();
-void overlay_shutdown();
-void overlay_set_stats(float x, float y, float z, float yaw, float pitch, float fov, float speed);
 
 // Main function
 int main(int argc, char** argv) {
@@ -44,9 +47,9 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
 
-    // Initialize a dynamic array for cubes
-    Cube_DArray cubes;
-    init_cube_darray(&cubes, 1000);
+    // Initialize a hashmap for cubes
+    Cube_Map cubes;
+    init_cube_map(&cubes, 2048);
     
     // Ground grid parameters (100x100, cubes glued together, size 0.25)
     const int GROUND_W = 25;
@@ -82,7 +85,12 @@ int main(int argc, char** argv) {
         new_cube->points[4] = new_cube->points[6];
         new_cube->points[5] = new_cube->points[7];
 
-        add_cube_to_darray(&cubes, new_cube);
+        Cube_Key key = {
+            .x = gx,
+            .y = 0,
+            .z = gz
+        };
+        cube_map_add(&cubes, key, new_cube);
     }
 
     // Compute ground bounds (world space) so we can detect falling off edges
@@ -155,6 +163,11 @@ int main(int argc, char** argv) {
                     // Update camera orientation from mouse movement
                     const float mouse_sens = 0.1f; // degrees per pixel
                     camera.yaw += event.motion.xrel * mouse_sens;
+                    if (camera.yaw > 360.0f) {
+                        camera.yaw -= 360.0f;
+                    } else if (camera.yaw < 0.0f) {
+                        camera.yaw += 360.0f;
+                    }
                     // Standard Y (not inverted): moving mouse up decreases yrel, so add it
                     camera.pitch += event.motion.yrel * mouse_sens;
                     if (camera.pitch > PITCH_MAX) camera.pitch = PITCH_MAX;
@@ -345,9 +358,13 @@ int main(int argc, char** argv) {
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         SDL_RenderClear(renderer);
 
-        // Draw all cubes in the array
-        for (size_t ci = 0; ci < cubes.cur_size; ++ci) {
-            draw_cube(cubes.arr[ci]);
+        // Draw all cubes in the map
+        size_t cubes_capacity = cube_map_capacity(&cubes);
+        for (size_t ci = 0; ci < cubes_capacity; ++ci) {
+            const Cube_Map_Entry* entry = cube_map_entry_at(&cubes, ci);
+            if (entry && entry->occupied && entry->cube) {
+                draw_cube(entry->cube);
+            }
         }
 
         // Draw static crosshair in the center of the screen
@@ -355,7 +372,7 @@ int main(int argc, char** argv) {
 
         // ImGui overlay: update stats, start a new frame, let it draw UI, then render on top
         if (OVERLAY_ON) {
-            overlay_set_stats(camera.x, camera.y, camera.z, camera.yaw, camera.pitch, fov_display, move_speed);
+            overlay_set_stats(camera.x, camera.y, camera.z, camera.yaw, camera.pitch, fov_display, cubes.size, cube_map_capacity(&cubes));
         }
         overlay_newframe();
         overlay_render();

@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include "imgui_overlay.h"
 #include "imgui/imgui.h"
 #include "imgui/backends/imgui_impl_sdl2.h"
 #include "imgui/backends/imgui_impl_sdlrenderer2.h"
@@ -18,14 +19,17 @@ struct OverlayStats {
     float yaw, pitch;
     float fov;
     float speed;
+    size_t cube_count;
+    size_t map_capacity;
 };
 
-static OverlayStats g_stats = {0,0,0,0,0,0,0,0};
+static OverlayStats g_stats = {0,0,0,0,0,0,0,0,0,0};
 
 void overlay_init(SDL_Window* window, SDL_Renderer* renderer) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    ImGuiIO& io = ImGui::GetIO();
+    (void)io;
     ImGui::StyleColorsDark();
 
     // Load an external font
@@ -58,11 +62,12 @@ void overlay_process_event(SDL_Event* event) {
     ImGui_ImplSDL2_ProcessEvent(event);
 }
 
-void overlay_set_stats(float x, float y, float z, float yaw, float pitch, float fov, float speed) {
+void overlay_set_stats(float x, float y, float z, float yaw, float pitch, float fov, size_t cube_map_size, size_t cube_map_capacity) {
     g_stats.x = x; g_stats.y = y; g_stats.z = z;
     g_stats.yaw = yaw; g_stats.pitch = pitch;
     g_stats.fov = fov;
-    g_stats.speed = speed;
+    g_stats.cube_count = cube_map_size;
+    g_stats.map_capacity = cube_map_capacity;
 }
 
 void overlay_newframe() {
@@ -73,12 +78,14 @@ void overlay_newframe() {
     // Small top-left overlay window
     ImGui::SetNextWindowBgAlpha(0.35f);
     ImGui::SetNextWindowPos(ImVec2(10,10), ImGuiCond_Always);
-    ImGui::Begin("Stats Overlay", NULL, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove /*| ImGuiWindowFlags_NoTitleBar*/);
-    ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
-    ImGui::Text("Pos.: (x:%.2f, y:%.2f, z:%.2f)", g_stats.x, g_stats.y, g_stats.z);
-    ImGui::Text("Yaw: %.1f Pitch: %.1f", g_stats.yaw, g_stats.pitch);
-    ImGui::Text("FOV: %.1f degrees", g_stats.fov);
-    ImGui::Text("Speed: %.2f u/s", g_stats.speed);
+    ImGui::Begin("Overlay", NULL, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove /*| ImGuiWindowFlags_NoTitleBar*/);
+    ImGui::Text("FPS: %.1f (%.2f ms)", ImGui::GetIO().Framerate, 1000.0f / ImGui::GetIO().Framerate);
+    ImGui::Text("Cam. Pos.: (x:%.2f, y:%.2f, z:%.2f)", g_stats.x, g_stats.y, g_stats.z);
+    ImGui::Text("Cam. View: (yaw:%.1f, pitch:%.1f, fov:%.1f)", g_stats.yaw, g_stats.pitch, g_stats.fov);
+    ImGui::Text("Cube Map: (cubes:%zu, size:%zu)", g_stats.cube_count, g_stats.map_capacity);
+    ImGui::Separator();
+    ImGui::Text("Use WASD to move, mouse to look around,");
+    ImGui::Text("left shift to sprint and space to jump.");
     ImGui::End();
 }
 
