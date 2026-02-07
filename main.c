@@ -9,9 +9,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <stdbool.h>
-
 #include <SDL2/SDL.h>
-
 #include "cube.h"
 #include "data_structures.h"
 #include "settings.h"
@@ -33,7 +31,57 @@ bool init();
 void draw_crosshair(int thickness, int size);
 void draw_overlay(float dt, float fov_display, float move_speed);
 
-// Dear ImGui overlay (implemented in C++ wrapper)
+static int world_to_grid_coord(float world, float step, float offset) {
+    return (int)lroundf((world + offset) / step);
+}
+
+static int world_to_grid_index_floor(float world, float step, float offset) {
+    float half = step * 0.5f;
+    return (int)floorf((world + offset + half) / step);
+}
+
+typedef struct {
+    float min_x;
+    float min_y;
+    float min_z;
+    float max_x;
+    float max_y;
+    float max_z;
+} AABB;
+
+static AABB player_aabb(float px, float py, float pz, float radius, float height, float eye_height) {
+    float min_y = py - eye_height;
+    AABB box = {
+        .min_x = px - radius,
+        .max_x = px + radius,
+        .min_y = min_y,
+        .max_y = min_y + height,
+        .min_z = pz - radius,
+        .max_z = pz + radius
+    };
+    return box;
+}
+
+static bool aabb_intersects_map(const Cube_Map* map, AABB box, float step, float offset_x, float offset_y, float offset_z) {
+    int min_x = world_to_grid_index_floor(box.min_x, step, offset_x);
+    int max_x = world_to_grid_index_floor(box.max_x, step, offset_x);
+    int min_y = world_to_grid_index_floor(box.min_y, step, offset_y);
+    int max_y = world_to_grid_index_floor(box.max_y, step, offset_y);
+    int min_z = world_to_grid_index_floor(box.min_z, step, offset_z);
+    int max_z = world_to_grid_index_floor(box.max_z, step, offset_z);
+
+    for (int gx = min_x; gx <= max_x; ++gx) {
+        for (int gy = min_y; gy <= max_y; ++gy) {
+            for (int gz = min_z; gz <= max_z; ++gz) {
+                Cube_Key key = { .x = gx, .y = gy, .z = gz };
+                if (cube_map_get(map, key)) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
 
 // Main function
 int main(int argc, char** argv) {
@@ -51,57 +99,96 @@ int main(int argc, char** argv) {
     Cube_Map cubes;
     init_cube_map(&cubes, 2048);
     
-    // Ground grid parameters (100x100, cubes glued together, size 0.25)
-    const int GROUND_W = 25;
-    const int GROUND_H = 25;
-    const float GROUND_CUBE_SIZE = 1.0f;
-    const float GROUND_SPACING = 0.1f; // glued
-
-    const int ground_total = GROUND_W * GROUND_H;
-    for (int i = 0; i < ground_total; ++i) {
+    // Ground grid parameters (just as an example until maps start being used)
+    const int GROUND_W = 5;
+    const int GROUND_D = 5;
+    const int GROUND_N = GROUND_W * GROUND_D;
+    const float GRID_OFFSET_X = ((GROUND_W - 1) * CUBE_SIZE) / 2.0f;
+    const float GRID_OFFSET_Z = ((GROUND_D - 1) * CUBE_SIZE) / 2.0f;
+    const float GRID_OFFSET_Y = CUBE_SIZE * 0.5f;
+    for (int i = 0; i < GROUND_N; ++i) {
         int gx = i % GROUND_W;
         int gz = i / GROUND_W;
 
-        float step = GROUND_CUBE_SIZE + GROUND_SPACING; // center-to-center distance
-        float offset_x = ((GROUND_W - 1) * step) / 2.0f;
-        float offset_z = ((GROUND_H - 1) * step) / 2.0f;
-        float half_size = GROUND_CUBE_SIZE / 2.0f;
-
-        // Centered in X and Z, Y is half-size below origin (-0.25)
+        // Centered in X and Z, Y is half-size below origin
         Point3D center = {
-            .x = gx * step - offset_x,
-            .y = -half_size,
-            .z = gz * step - offset_z
+            .x = gx * CUBE_SIZE - GRID_OFFSET_X,
+            .y = -GRID_OFFSET_Y,
+            .z = gz * CUBE_SIZE - GRID_OFFSET_Z
         };
-
         Cube* new_cube = (Cube*)malloc(sizeof(Cube));
-        
-        make_cube(new_cube, GROUND_CUBE_SIZE, center);
-        new_cube->color = (SDL_Color){0, 255, 0, 255};
-
-        // Squash cubes flat (become 2D tiles)
-        new_cube->points[0] = new_cube->points[2];
-        new_cube->points[1] = new_cube->points[3];
-        new_cube->points[4] = new_cube->points[6];
-        new_cube->points[5] = new_cube->points[7];
+        make_cube(new_cube, CUBE_SIZE, center, (SDL_Color){0, 255, 0, 255});
 
         Cube_Key key = {
-            .x = gx,
-            .y = 0,
-            .z = gz
+            .x = world_to_grid_coord(center.x, CUBE_SIZE, GRID_OFFSET_X),
+            .y = world_to_grid_coord(center.y, CUBE_SIZE, GRID_OFFSET_Y),
+            .z = world_to_grid_coord(center.z, CUBE_SIZE, GRID_OFFSET_Z)
+        };
+        cube_map_add(&cubes, key, new_cube);
+    }
+    
+    for (int i = 0; i < GROUND_N; ++i) {
+        int gx = i % GROUND_W;
+        int gz = i / GROUND_W;
+
+        // Centered in X and Z, Y is half-size below origin
+        Point3D center = {
+            .x = gx * CUBE_SIZE - GRID_OFFSET_X,
+            .y = -2 * CUBE_SIZE - GRID_OFFSET_Y,
+            .z = GROUND_D * CUBE_SIZE + gz * CUBE_SIZE - GRID_OFFSET_Z
+        };
+        Cube* new_cube = (Cube*)malloc(sizeof(Cube));
+        make_cube(new_cube, CUBE_SIZE, center, (SDL_Color){255, 255, 0, 255});
+
+        Cube_Key key = {
+            .x = world_to_grid_coord(center.x, CUBE_SIZE, GRID_OFFSET_X),
+            .y = world_to_grid_coord(center.y, CUBE_SIZE, GRID_OFFSET_Y),
+            .z = world_to_grid_coord(center.z, CUBE_SIZE, GRID_OFFSET_Z)
         };
         cube_map_add(&cubes, key, new_cube);
     }
 
-    // Compute ground bounds (world space) so we can detect falling off edges
-    float ground_step = GROUND_CUBE_SIZE + GROUND_SPACING;
-    float ground_offset_x = ((GROUND_W - 1) * ground_step) / 2.0f;
-    float ground_offset_z = ((GROUND_H - 1) * ground_step) / 2.0f;
-    float ground_half = GROUND_CUBE_SIZE / 2.0f;
-    const float GROUND_MIN_X = -ground_offset_x - ground_half; // TODO: fix this crappy method
-    const float GROUND_MAX_X =  ground_offset_x + ground_half;
-    const float GROUND_MIN_Z = -ground_offset_z - ground_half;
-    const float GROUND_MAX_Z =  ground_offset_z + ground_half;
+    for (int i = 0; i < GROUND_N; ++i) {
+        int gx = i % GROUND_W;
+        int gz = i / GROUND_W;
+
+        // Centered in X and Z, Y is half-size below origin
+        Point3D center = {
+            .x = GROUND_W * CUBE_SIZE + gx * CUBE_SIZE - GRID_OFFSET_X,
+            .y = 2 * CUBE_SIZE - GRID_OFFSET_Y,
+            .z = gz * CUBE_SIZE - GRID_OFFSET_Z
+        };
+        Cube* new_cube = (Cube*)malloc(sizeof(Cube));
+        make_cube(new_cube, CUBE_SIZE, center, (SDL_Color){0, 255, 255, 255});
+
+        Cube_Key key = {
+            .x = world_to_grid_coord(center.x, CUBE_SIZE, GRID_OFFSET_X),
+            .y = world_to_grid_coord(center.y, CUBE_SIZE, GRID_OFFSET_Y),
+            .z = world_to_grid_coord(center.z, CUBE_SIZE, GRID_OFFSET_Z)
+        };
+        cube_map_add(&cubes, key, new_cube);
+    }
+
+    for (int i = 0; i < GROUND_N; ++i) {
+        int gx = i % GROUND_W;
+        int gz = i / GROUND_W;
+
+        // Centered in X and Z, Y is half-size below origin
+        Point3D center = {
+            .x = GROUND_W * CUBE_SIZE + gx * CUBE_SIZE - GRID_OFFSET_X,
+            .y = 4 * CUBE_SIZE - GRID_OFFSET_Y,
+            .z = GROUND_D * CUBE_SIZE + gz * CUBE_SIZE - GRID_OFFSET_Z
+        };
+        Cube* new_cube = (Cube*)malloc(sizeof(Cube));
+        make_cube(new_cube, CUBE_SIZE, center, (SDL_Color){255, 0, 255, 255});
+
+        Cube_Key key = {
+            .x = world_to_grid_coord(center.x, CUBE_SIZE, GRID_OFFSET_X),
+            .y = world_to_grid_coord(center.y, CUBE_SIZE, GRID_OFFSET_Y),
+            .z = world_to_grid_coord(center.z, CUBE_SIZE, GRID_OFFSET_Z)
+        };
+        cube_map_add(&cubes, key, new_cube);
+    }
 
     // Camera parameters
     float fov_base = 60.0f;                  // Base FOV controlled by mouse wheel
@@ -115,8 +202,6 @@ int main(int argc, char** argv) {
     // Vertical movement (jump / fall) parameters
     bool is_grounded = true;
     float vertical_velocity = 0.0f; // positive = up
-    const float JUMP_IMPULSE = 10.0f; // initial upward velocity for a jump (tweakable)
-    float ground_y = camera.y;
 
     // Walking (bob) parameters
     float walk_phase = 0.0f;
@@ -125,14 +210,6 @@ int main(int argc, char** argv) {
     const float WALK_FREQUENCY = 2.25f; // steps per second (base)
     float walk_frequency_current = WALK_FREQUENCY; // may be increased while sprinting
     const float WALK_SMOOTH = 8.0f; // smoothing rate
-
-    // Falling / gravity
-    bool is_falling = false;
-    float fall_start_y = 0.0f;
-    float fall_mom_x = 0.0f;
-    float fall_mom_z = 0.0f;
-    const float GRAVITY = 30.0f; // units/s^2 (gamey)
-    const float FALL_RESET_DISTANCE = 200.0f; // units to trigger reset
 
     // Main loop
     bool running = true;
@@ -189,7 +266,6 @@ int main(int argc, char** argv) {
         const float sprint_multiplier = 2.0f; // how much faster when sprinting
         bool sprint = (keystate[SDL_SCANCODE_LSHIFT] && keystate[SDL_SCANCODE_W]);
         float move_speed = move_speed_base * (sprint ? sprint_multiplier : 1.0f);
-        float camera_step = move_speed * dt;
         // increase walk frequency a bit while sprinting
         walk_frequency_current = sprint ? (WALK_FREQUENCY * 1.4f) : WALK_FREQUENCY;
         // Smoothly interpolate FOV display towards sprint FOV when sprinting
@@ -201,148 +277,108 @@ int main(int argc, char** argv) {
         fov_rad = fov_display * (M_PI / 180.0f);
         camera.focal_length = 1.0f / tanf(fov_rad * 0.5f);
 
-        // Movement and jumping (disabled while falling)
-        if (!is_falling) {
-            // Build forward vector from yaw/pitch
-            float yaw_rad = camera.yaw * (M_PI / 180.0f);
-            float pitch_rad = camera.pitch * (M_PI / 180.0f);
-            float fx = cosf(pitch_rad) * sinf(yaw_rad);
-            float fy = -sinf(pitch_rad);
-            float fz = cosf(pitch_rad) * cosf(yaw_rad);
-            // normalize forward
-            float flen = sqrtf(fx*fx + fy*fy + fz*fz);
-            if (flen > 0.000001f) { fx /= flen; fy /= flen; fz /= flen; }
+        // Movement and jumping
+        float wish_vx = 0.0f;
+        float wish_vz = 0.0f;
+        // Build forward vector from yaw/pitch
+        float yaw_rad = camera.yaw * (M_PI / 180.0f);
+        float pitch_rad = camera.pitch * (M_PI / 180.0f);
+        float fx = cosf(pitch_rad) * sinf(yaw_rad);
+        float fy = -sinf(pitch_rad);
+        float fz = cosf(pitch_rad) * cosf(yaw_rad);
+        // normalize forward
+        float flen = sqrtf(fx*fx + fy*fy + fz*fz);
+        if (flen > 0.000001f) { fx /= flen; fy /= flen; fz /= flen; }
 
-            // right = normalize(cross(up, forward)) ; up = (0,1,0)
-            float rx = fz;
-            float rz = -fx;
-            float rlen = sqrtf(rx*rx + rz*rz);
-            if (rlen > 0.000001f) { rx /= rlen; rz /= rlen; } else { rx = 1.0f; rz = 0.0f; }
+        // right = normalize(cross(up, forward)) ; up = (0,1,0)
+        float rx = fz;
+        float rz = -fx;
+        float rlen = sqrtf(rx*rx + rz*rz);
+        if (rlen > 0.000001f) { rx /= rlen; rz /= rlen; } else { rx = 1.0f; rz = 0.0f; }
 
-            // Ground-constrained movement: ignore forward.y
-            float gx = fx;
-            float gz = fz;
-            float glen = sqrtf(gx*gx + gz*gz);
-            if (glen > 0.000001f) { gx /= glen; gz /= glen; } else { gx = 0.0f; gz = 1.0f; }
+        // Ground-constrained movement: ignore forward.y
+        float gx = fx;
+        float gz = fz;
+        float glen = sqrtf(gx*gx + gz*gz);
+        if (glen > 0.000001f) { gx /= glen; gz /= glen; } else { gx = 0.0f; gz = 1.0f; }
 
-            if (keystate[SDL_SCANCODE_W]) {
-                camera.x += gx * camera_step;
-                camera.z += gz * camera_step;
-            }
-            if (keystate[SDL_SCANCODE_S]) {
-                camera.x -= gx * camera_step;
-                camera.z -= gz * camera_step;
-            }
-            if (keystate[SDL_SCANCODE_A]) {
-                camera.x -= rx * camera_step;
-                camera.z -= rz * camera_step;
-            }
-            if (keystate[SDL_SCANCODE_D]) {
-                camera.x += rx * camera_step;
-                camera.z += rz * camera_step;
-            }
-            if (keystate[SDL_SCANCODE_SPACE] && is_grounded) { // Jump impulse
-                ground_y = camera.y; // capture current ground level
-                vertical_velocity = JUMP_IMPULSE;
-                is_grounded = false;
-            }
+        if (keystate[SDL_SCANCODE_W]) {
+            wish_vx += gx * move_speed;
+            wish_vz += gz * move_speed;
+        }
+        if (keystate[SDL_SCANCODE_S]) {
+            wish_vx -= gx * move_speed;
+            wish_vz -= gz * move_speed;
+        }
+        if (keystate[SDL_SCANCODE_A]) {
+            wish_vx -= rx * move_speed;
+            wish_vz -= rz * move_speed;
+        }
+        if (keystate[SDL_SCANCODE_D]) {
+            wish_vx += rx * move_speed;
+            wish_vz += rz * move_speed;
+        }
+        if (keystate[SDL_SCANCODE_SPACE] && is_grounded) { // Jump impulse
+            vertical_velocity = JUMP_IMPULSE;
+            is_grounded = false;
+        }
+
+        // Resolve horizontal movement with collisions (axis-by-axis)
+        float new_x = camera.x + wish_vx * dt;
+        AABB box_x = player_aabb(new_x, camera.y, camera.z, PLAYER_RADIUS, PLAYER_HEIGHT, PLAYER_EYE_HEIGHT);
+        if (!aabb_intersects_map(&cubes, box_x, CUBE_SIZE, GRID_OFFSET_X, GRID_OFFSET_Y, GRID_OFFSET_Z)) {
+            camera.x = new_x;
+        }
+
+        float new_z = camera.z + wish_vz * dt;
+        AABB box_z = player_aabb(camera.x, camera.y, new_z, PLAYER_RADIUS, PLAYER_HEIGHT, PLAYER_EYE_HEIGHT);
+        if (!aabb_intersects_map(&cubes, box_z, CUBE_SIZE, GRID_OFFSET_X, GRID_OFFSET_Y, GRID_OFFSET_Z)) {
+            camera.z = new_z;
         }
 
         // Apply vertical physics (gravity) every frame. Positive velocity = upward.
-        if (is_grounded) {
-            vertical_velocity = 0.0f;
-            camera.y = ground_y;
-        } else {
+        if (!is_grounded) {
             vertical_velocity -= GRAVITY * dt;
-            camera.y += vertical_velocity * dt;
+        } else if (vertical_velocity < 0.0f) {
+            vertical_velocity = 0.0f;
         }
 
-        // while falling, apply horizontal momentum with damping
-        if (is_falling) {
-            // damping per second -> use exp decay for frame-rate independence
-            const float MOM_DAMP_RATE = 1.5f; // larger = faster stop
-            float damp = expf(-MOM_DAMP_RATE * dt);
-            camera.x += fall_mom_x * dt;
-            camera.z += fall_mom_z * dt;
-            fall_mom_x *= damp;
-            fall_mom_z *= damp;
-        }
-
-        // If not already falling, check bounds to start falling
-        // Allow starting a fall even if the player is mid-jump so the jump naturally transitions to falling.
-        if (!is_falling) {
-            if (camera.x < GROUND_MIN_X || camera.x > GROUND_MAX_X || camera.z < GROUND_MIN_Z || camera.z > GROUND_MAX_Z) {
-                // start falling: capture horizontal momentum based on current input and orientation
-                // compute orientation vectors
-                float yaw_rad_local = camera.yaw * (M_PI / 180.0f);
-                float pitch_rad_local = camera.pitch * (M_PI / 180.0f);
-                float fx_local = cosf(pitch_rad_local) * sinf(yaw_rad_local);
-                float fz_local = cosf(pitch_rad_local) * cosf(yaw_rad_local);
-                float rx_local = fz_local;
-                float rz_local = -fx_local;
-                // normalize ground forward
-                float gx_local = fx_local;
-                float gz_local = fz_local;
-                float glen_local = sqrtf(gx_local*gx_local + gz_local*gz_local);
-                if (glen_local > 0.000001f) { gx_local /= glen_local; gz_local /= glen_local; } else { gx_local = 0.0f; gz_local = 1.0f; }
-                int ws = (keystate[SDL_SCANCODE_W] ? 1 : 0) - (keystate[SDL_SCANCODE_S] ? 1 : 0);
-                int ad = (keystate[SDL_SCANCODE_D] ? 1 : 0) - (keystate[SDL_SCANCODE_A] ? 1 : 0);
-                float vx = (ws * gx_local + ad * rx_local) * (move_speed);
-                float vz = (ws * gz_local + ad * rz_local) * (move_speed);
-
-                is_falling = true;
-                is_grounded = false;
-                fall_start_y = camera.y;
-                fall_mom_x = vx;
-                fall_mom_z = vz;
-            }
-        }
-
-        // If player is within the ground bounds, treat the normal ground level as y=2.0f
-        if (camera.x >= GROUND_MIN_X && camera.x <= GROUND_MAX_X && camera.z >= GROUND_MIN_Z && camera.z <= GROUND_MAX_Z) {
-            ground_y = 2.0f;
-        }
-
-        // Landing when airborne but not flagged as "falling" (e.g. jumping up and back down inside bounds)
-        if (!is_falling && !is_grounded) {
-            if (camera.x >= GROUND_MIN_X && camera.x <= GROUND_MAX_X && camera.z >= GROUND_MIN_Z && camera.z <= GROUND_MAX_Z && camera.y <= ground_y) {
+        float new_y = camera.y + vertical_velocity * dt;
+        AABB box_y = player_aabb(camera.x, new_y, camera.z, PLAYER_RADIUS, PLAYER_HEIGHT, PLAYER_EYE_HEIGHT);
+        if (aabb_intersects_map(&cubes, box_y, CUBE_SIZE, GRID_OFFSET_X, GRID_OFFSET_Y, GRID_OFFSET_Z)) {
+            // collide vertically
+            if (vertical_velocity < 0.0f) {
                 is_grounded = true;
-                vertical_velocity = 0.0f;
-                camera.y = ground_y;
+            }
+            vertical_velocity = 0.0f;
+            new_y = camera.y;
+        } else {
+            camera.y = new_y;
+            if (vertical_velocity <= 0.0f) {
+                AABB probe = player_aabb(camera.x, camera.y - GROUND_EPS, camera.z, PLAYER_RADIUS, PLAYER_HEIGHT, PLAYER_EYE_HEIGHT);
+                is_grounded = aabb_intersects_map(&cubes, probe, CUBE_SIZE, GRID_OFFSET_X, GRID_OFFSET_Y, GRID_OFFSET_Z);
+                if (is_grounded) {
+                    vertical_velocity = 0.0f;
+                }
+            } else {
+                is_grounded = false;
             }
         }
 
-        // If falling and we've returned within bounds and hit the ground level, land
-        if (is_falling) {
-            if (camera.x >= GROUND_MIN_X && camera.x <= GROUND_MAX_X && camera.z >= GROUND_MIN_Z && camera.z <= GROUND_MAX_Z && camera.y <= ground_y) {
-                is_falling = false;
-                vertical_velocity = 0.0f;
-                is_grounded = true;
-                camera.y = ground_y;
-            }
-            // check fall reset distance and respawn instead of quitting
-            if (fall_start_y - camera.y >= FALL_RESET_DISTANCE) {
-                // reset camera to safe high position and then continue falling to y=2.0
-                camera.x = 0.0f;
-                camera.y = 15.0f;
-                camera.z = 0.0f;
-                camera.yaw = 0.0f;
-                camera.pitch = 0.0f;
-                // clear horizontal momentum, start falling from reset height
-                fall_mom_x = 0.0f;
-                fall_mom_z = 0.0f;
-                vertical_velocity = 0.0f;
-                is_grounded = false;
-                // set target ground level to 2.0 and start falling
-                ground_y = 2.0f;
-                is_falling = true;
-                fall_start_y = camera.y;
-            }
+        // Simple fall reset if we drop too far below the world
+        if (camera.y < -FALL_RESET_DISTANCE) {
+            camera.x = 0.0f;
+            camera.y = 15.0f;
+            camera.z = 0.0f;
+            camera.yaw = 0.0f;
+            camera.pitch = 30.0f;
+            vertical_velocity = 0.0f;
+            is_grounded = false;
         }
 
         // Walking bob calculation (smooth start/stop). Only when on ground and not jumping or falling.
-        bool moving_input = (!is_falling) && (keystate[SDL_SCANCODE_W] || keystate[SDL_SCANCODE_A] || keystate[SDL_SCANCODE_S] || keystate[SDL_SCANCODE_D]);
-        float target_amp = (!is_falling && is_grounded && moving_input) ? WALK_AMPLITUDE : 0.0f;
+        bool moving_input = (keystate[SDL_SCANCODE_W] || keystate[SDL_SCANCODE_A] || keystate[SDL_SCANCODE_S] || keystate[SDL_SCANCODE_D]);
+        float target_amp = (is_grounded && moving_input) ? WALK_AMPLITUDE : 0.0f;
         // smooth amplitude
         walk_amp += (target_amp - walk_amp) * fminf(1.0f, dt * WALK_SMOOTH);
         if (walk_amp > 0.0001f) {

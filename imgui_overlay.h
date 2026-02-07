@@ -1,6 +1,5 @@
 #ifndef IMGUI_OVERLAY_H
 #define IMGUI_OVERLAY_H
-
 #include <stddef.h>
 #include <SDL2/SDL.h>
 

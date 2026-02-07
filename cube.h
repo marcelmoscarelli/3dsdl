@@ -4,7 +4,7 @@
 #include <SDL2/SDL.h>
 #include "data_structures.h"
 
-void make_cube(Cube* cube, float size, Point3D center);
+void make_cube(Cube* cube, float size, Point3D center, SDL_Color color);
 void rotate_cube(Cube* cube, Point3D axis, float angle);
 void draw_cube(const Cube* cube);
 

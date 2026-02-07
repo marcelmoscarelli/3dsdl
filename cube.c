@@ -14,7 +14,7 @@ extern Camera camera;          // defined in main.c
 extern SDL_Renderer* renderer; // defined in main.c
 
 // Define the points of an y axis-aligned cube centered at `center` with given `size`
-void make_cube(Cube* cube, float size, Point3D center) {
+void make_cube(Cube* cube, float size, Point3D center, SDL_Color color) {
     if (!cube) {
         printf("make_cube(): NULL cube pointer. Exiting!\n");
         exit(EXIT_FAILURE);
@@ -32,6 +32,8 @@ void make_cube(Cube* cube, float size, Point3D center) {
     cube->points[5] = (Point3D){center.x + half_size, center.y - half_size, center.z + half_size}; // F
     cube->points[6] = (Point3D){center.x + half_size, center.y + half_size, center.z + half_size}; // G
     cube->points[7] = (Point3D){center.x - half_size, center.y + half_size, center.z + half_size}; // H
+
+    cube->color = color;
 }
 
 // Rotate around arbitrary axis through cube center using Rodrigues' rotation formula
@@ -54,13 +56,13 @@ void rotate_cube(Cube* cube, Point3D axis, float angle) {
     float ax = axis.x;
     float ay = axis.y;
     float az = axis.z;
-    float alen = sqrtf(ax*ax + ay*ay + az*az); // length of axis
-    if (alen < 1e-6f) {                        // avoid division by zero
+    float axis_len = sqrtf(ax*ax + ay*ay + az*az);
+    if (axis_len < 1e-6f) { // avoid division by zero
         return;
     }
-    float kx = ax / alen;
-    float ky = ay / alen;
-    float kz = az / alen;
+    float kx = ax / axis_len;
+    float ky = ay / axis_len;
+    float kz = az / axis_len;
 
     float cos = cosf(angle);
     float sin = sinf(angle);

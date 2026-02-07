@@ -1,9 +1,9 @@
 // Simple C-callable wrapper to use Dear ImGui with an SDL_Renderer-based backend.
-#include <SDL2/SDL.h>
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include <SDL2/SDL.h>
 #include "imgui_overlay.h"
 #include "imgui/imgui.h"
 #include "imgui/backends/imgui_impl_sdl2.h"
@@ -76,8 +76,8 @@ void overlay_newframe() {
     ImGui::NewFrame();
 
     // Small top-left overlay window
-    ImGui::SetNextWindowBgAlpha(0.35f);
     ImGui::SetNextWindowPos(ImVec2(10,10), ImGuiCond_Always);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.8f));
     ImGui::Begin("Overlay", NULL, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove /*| ImGuiWindowFlags_NoTitleBar*/);
     ImGui::Text("FPS: %.1f (%.2f ms)", ImGui::GetIO().Framerate, 1000.0f / ImGui::GetIO().Framerate);
     ImGui::Text("Cam. Pos.: (x:%.2f, y:%.2f, z:%.2f)", g_stats.x, g_stats.y, g_stats.z);
@@ -87,6 +87,7 @@ void overlay_newframe() {
     ImGui::Text("Use WASD to move, mouse to look around,");
     ImGui::Text("left shift to sprint and space to jump.");
     ImGui::End();
+    ImGui::PopStyleColor();
 }
 
 void overlay_render() {

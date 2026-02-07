@@ -11,7 +11,6 @@ extern const uint32_t FRAME_DELAY;
 
 // Global consts for stats overlay
 extern const bool OVERLAY_ON;
-extern const float OVERLAY_INTERVAL;
 
 // Global consts for camera
 extern const float ASPECT_RATIO;
@@ -20,5 +19,19 @@ extern const float FOV_MIN;
 extern const float FOV_MAX;
 extern const float PITCH_MAX;
 extern const float PITCH_MIN;
+
+// Global consts for cubes
+extern const float CUBE_SIZE;
+
+// Falling / gravity
+extern const float GRAVITY;
+extern const float FALL_RESET_DISTANCE;
+extern const float JUMP_IMPULSE;
+
+// Player collider (AABB) parameters
+extern const float PLAYER_HEIGHT;
+extern const float PLAYER_EYE_HEIGHT;
+extern const float PLAYER_RADIUS;
+extern const float GROUND_EPS;
 
 #endif
