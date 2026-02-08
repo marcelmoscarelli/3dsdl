@@ -19,6 +19,7 @@ extern const float SPRINT_FOV;
 extern const float FOV_LERP_SPEED;
 extern const float PITCH_MAX;
 extern const float PITCH_MIN;
+extern const float MOUSE_SENSITIVITY;
 
 // Global consts for cubes
 extern const float CUBE_SIZE;

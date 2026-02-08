@@ -17,6 +17,7 @@ const float SPRINT_FOV = 70.0f;
 const float FOV_LERP_SPEED = 6.0f;
 const float PITCH_MAX = 89.0f;
 const float PITCH_MIN = -89.0f;
+const float MOUSE_SENSITIVITY = 0.1f; // degrees per pixel
 
 // Global consts for cubes
 const float CUBE_SIZE = 2.0f;

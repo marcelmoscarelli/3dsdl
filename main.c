@@ -29,7 +29,7 @@ static SDL_Window* window = NULL;
 
 // Function prototypes
 bool init();
-void create_ground_grid(Cube_Map* map, int size, int x, int y, int z, SDL_Color color, bool leave_hole, int hole_size);
+void create_ground_grid(Cube_Map* map, int size, int x, int y, int z, SDL_Color color, int hole_size);
 
 // Main function
 int main(int argc, char** argv) {
@@ -52,18 +52,19 @@ int main(int argc, char** argv) {
     const float GRID_OFFSET_X = ((GROUND_SIZE - 1) * CUBE_SIZE) / 2.0f;
     const float GRID_OFFSET_Z = ((GROUND_SIZE - 1) * CUBE_SIZE) / 2.0f;
     const float GRID_OFFSET_Y = CUBE_SIZE * 0.5f;
-    create_ground_grid(&cubes, GROUND_SIZE, 0, 0, 0, (SDL_Color){255, 255, 0, 255}, false, 0); // Yellow
-    create_ground_grid(&cubes, GROUND_SIZE, 0, 2, GROUND_SIZE, (SDL_Color){0, 255, 0, 255}, true, 1); // Green
-    create_ground_grid(&cubes, GROUND_SIZE, GROUND_SIZE, 4, GROUND_SIZE, (SDL_Color){0, 255, 255, 255}, true, 3); // Cyan
-    create_ground_grid(&cubes, GROUND_SIZE, GROUND_SIZE, 6, 0, (SDL_Color){255, 0, 255, 255}, true, 5); // Magenta
-    create_ground_grid(&cubes, GROUND_SIZE, 0, 8, 0, (SDL_Color){255, 255, 255, 255}, true, 7); // White
+    create_ground_grid(&cubes, GROUND_SIZE, 0, 0, 0, (SDL_Color){255, 255, 0, 255}, 0); // Yellow
+    create_ground_grid(&cubes, GROUND_SIZE, 0, 2, GROUND_SIZE, (SDL_Color){0, 255, 0, 255}, 1); // Green
+    create_ground_grid(&cubes, GROUND_SIZE, GROUND_SIZE, 4, GROUND_SIZE, (SDL_Color){0, 255, 255, 255}, 3); // Cyan
+    create_ground_grid(&cubes, GROUND_SIZE, GROUND_SIZE, 6, 0, (SDL_Color){255, 0, 255, 255}, 5); // Magenta
+    create_ground_grid(&cubes, GROUND_SIZE, 0, 8, 0, (SDL_Color){255, 255, 255, 255}, 7); // White
 
     // Camera parameters
- 
-    float fov_display = 60.0f;               // Actual FOV used for rendering (can be interpolated during sprint)
-    float fov_rad = fov_display * (M_PI / 180.0f);  // Convert to radians
+    float fov_display = 60.0f;
+    float fov_rad = fov_display * (M_PI / 180.0f);     // Convert to radians
     camera.focal_length = 1.0f / tanf(fov_rad * 0.5f); // Focal length of the camera
+
     // Enable relative mouse mode for FPS-style look
+    bool mouse_captured = true;
     SDL_SetRelativeMouseMode(SDL_TRUE);
     SDL_ShowCursor(SDL_DISABLE);
 
@@ -103,21 +104,34 @@ int main(int argc, char** argv) {
                 overlay_process_event(&event);
                 switch (event.type) {
                 case SDL_QUIT:
+                    // Alt+F4 or clicking X button on window
                     running = false;
                     break;
+                case SDL_KEYDOWN: {
+                    // Toggle mouse capture with Esc key
+                    if (event.key.keysym.sym == SDLK_ESCAPE) {
+                        mouse_captured = !mouse_captured;
+                        SDL_SetRelativeMouseMode(mouse_captured ? SDL_TRUE : SDL_FALSE);
+                        SDL_ShowCursor(mouse_captured ? SDL_DISABLE : SDL_ENABLE);
+                    }
+                    break;
+                }
                 case SDL_MOUSEMOTION: {
                     // Update camera orientation from mouse movement
-                    const float mouse_sens = 0.1f; // degrees per pixel
-                    camera.yaw += event.motion.xrel * mouse_sens;
+                    camera.yaw += event.motion.xrel * MOUSE_SENSITIVITY;
                     if (camera.yaw > 360.0f) {
                         camera.yaw -= 360.0f;
                     } else if (camera.yaw < 0.0f) {
                         camera.yaw += 360.0f;
                     }
-                    // Standard Y (not inverted): moving mouse up decreases yrel, so add it
-                    camera.pitch += event.motion.yrel * mouse_sens;
-                    if (camera.pitch > PITCH_MAX) camera.pitch = PITCH_MAX;
-                    if (camera.pitch < PITCH_MIN) camera.pitch = PITCH_MIN;
+                    // Standard Y (not inverted)
+                    camera.pitch += event.motion.yrel * MOUSE_SENSITIVITY;
+                    if (camera.pitch > PITCH_MAX) {
+                        camera.pitch = PITCH_MAX;
+                    }
+                    if (camera.pitch < PITCH_MIN) {
+                        camera.pitch = PITCH_MIN;
+                    }
                     break;
                 }
                 default:
@@ -443,13 +457,14 @@ bool init() {
     return true;
 }
 
-// Creates a grid of cubes centered around (x, y, z) in world coordinates, with the specified size and color. Optionally leaves a hole in the middle.
-void create_ground_grid(Cube_Map* map, int size, int x, int y, int z, SDL_Color color, bool leave_hole, int hole_size) {
+// Creates a grid of cubes centered around (x, y, z) in world coordinates, with the specified size and color.
+// Optionally leaves a hole in the middle.
+void create_ground_grid(Cube_Map* map, int size, int x, int y, int z, SDL_Color color, int hole_size) {
     const float GRID_OFFSET_X = ((size - 1) * CUBE_SIZE) / 2.0f;
     const float GRID_OFFSET_Z = ((size - 1) * CUBE_SIZE) / 2.0f;
     const float GRID_OFFSET_Y = CUBE_SIZE * 0.5f;
 
-    if (hole_size < 0) {
+    if (hole_size <= 0) {
         hole_size = 0;
     } else if (hole_size >= size) {
         hole_size = size - 1;
@@ -460,7 +475,7 @@ void create_ground_grid(Cube_Map* map, int size, int x, int y, int z, SDL_Color 
     for (size_t i = 0; i < n_cubes; ++i) {
         int gx = i % size;
         int gz = i / size;
-        if (leave_hole && gx >= (size - hole_size) / 2 && gx < (size + hole_size) / 2 && gz >= (size - hole_size) / 2 && gz < (size + hole_size) / 2) {
+        if (hole_size > 0 && gx >= (size - hole_size) / 2 && gx < (size + hole_size) / 2 && gz >= (size - hole_size) / 2 && gz < (size + hole_size) / 2) {
             continue;
         }
 
