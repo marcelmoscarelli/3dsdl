@@ -12,7 +12,7 @@ void overlay_process_event(SDL_Event* event);
 void overlay_newframe();
 void overlay_render();
 void overlay_shutdown();
-void overlay_set_stats(float x, float y, float z, float yaw, float pitch, float fov, size_t cube_map_size, size_t cube_map_capacity);
+void overlay_set_stats(float x, float y, float z, float yaw, float pitch, float fov, size_t cube_map_size, size_t cube_map_capacity, int win_width, int win_height);
 
 #ifdef __cplusplus
 }

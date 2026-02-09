@@ -13,7 +13,6 @@ extern const uint32_t FRAME_DELAY;
 extern const bool OVERLAY_ON;
 
 // Global consts for camera
-extern const float ASPECT_RATIO;
 extern const float FOV;
 extern const float SPRINT_FOV;
 extern const float FOV_LERP_SPEED;

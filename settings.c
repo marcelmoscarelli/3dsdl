@@ -11,7 +11,6 @@ const uint32_t FRAME_DELAY = (1000u / TARGET_FPS);
 const bool OVERLAY_ON = true;
 
 // Global consts for camera
-const float ASPECT_RATIO = (float)WIDTH / (float)HEIGHT;
 const float FOV = 60.0f;
 const float SPRINT_FOV = 70.0f;
 const float FOV_LERP_SPEED = 6.0f;

@@ -2,9 +2,9 @@ CC = gcc
 CXX = g++
 PKG_CONFIG = pkg-config
 
-CFLAGS = -O3 -Wall -Wextra $(shell $(PKG_CONFIG) --cflags sdl2 SDL2_ttf)
-CXXFLAGS = -O3 -Wall -Wextra -std=c++11 $(shell $(PKG_CONFIG) --cflags sdl2)
-LDFLAGS = $(shell $(PKG_CONFIG) --libs sdl2 SDL2_ttf)
+CFLAGS = -O3 -Wall -Wextra $(shell $(PKG_CONFIG) --cflags sdl2 | sed 's/-mwindows//g')
+CXXFLAGS = -O3 -Wall -Wextra -std=c++11 $(shell $(PKG_CONFIG) --cflags sdl2 | sed 's/-mwindows//g')
+LDFLAGS = $(shell $(PKG_CONFIG) --libs sdl2 | sed 's/-mwindows//g')
 
 # If you put Dear ImGui under external/imgui, set IMGUI_DIR accordingly
 IMGUI_DIR = imgui

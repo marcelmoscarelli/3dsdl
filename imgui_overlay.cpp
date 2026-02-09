@@ -11,6 +11,7 @@
 
 extern "C" {
 
+extern bool show_controls_in_overlay; // defined in main.c
 static SDL_Renderer* aux_renderer = nullptr;
 
 struct Overlay_Stats {
@@ -21,9 +22,11 @@ struct Overlay_Stats {
     float speed;
     size_t cube_count;
     size_t map_capacity;
+    int win_width;
+    int win_height;
 };
 
-static Overlay_Stats stats = {0,0,0,0,0,0,0,0,0,0};
+static Overlay_Stats stats = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 
 void overlay_init(SDL_Window* window, SDL_Renderer* renderer) {
     IMGUI_CHECKVERSION();
@@ -62,12 +65,14 @@ void overlay_process_event(SDL_Event* event) {
     ImGui_ImplSDL2_ProcessEvent(event);
 }
 
-void overlay_set_stats(float x, float y, float z, float yaw, float pitch, float fov, size_t cube_map_size, size_t cube_map_capacity) {
+void overlay_set_stats(float x, float y, float z, float yaw, float pitch, float fov, size_t cube_map_size, size_t cube_map_capacity, int win_width, int win_height) {
     stats.x = x; stats.y = y; stats.z = z;
     stats.yaw = yaw; stats.pitch = pitch;
     stats.fov = fov;
     stats.cube_count = cube_map_size;
     stats.map_capacity = cube_map_capacity;
+    stats.win_width = win_width;
+    stats.win_height = win_height;
 }
 
 void overlay_newframe() {
@@ -83,9 +88,19 @@ void overlay_newframe() {
     ImGui::Text("Cam. Pos.: (x:%.2f, y:%.2f, z:%.2f)", stats.x, stats.y, stats.z);
     ImGui::Text("Cam. View: (yaw:%.1f, pitch:%.1f, fov:%.1f)", stats.yaw, stats.pitch, stats.fov);
     ImGui::Text("Cube Map: (cubes:%zu, size:%zu)", stats.cube_count, stats.map_capacity);
+    ImGui::Text("Current res.: %dx%d pixels", stats.win_width, stats.win_height);
     ImGui::Separator();
-    ImGui::Text("Use WASD to move, mouse to look around,");
-    ImGui::Text("left shift to sprint and space to jump.");
+    if (show_controls_in_overlay) {
+        ImGui::Text("Controls:");
+        ImGui::Text("- WASD to move");
+        ImGui::Text("- Mouse to look around");
+        ImGui::Text("- Left shift to sprint");
+        ImGui::Text("- Space to jump");
+        ImGui::Text("- Esc to toggle mouse capture");
+        ImGui::Text("- Alt+Enter to toggle fullscreen");
+    } else {
+        ImGui::Text("Help with controls? Press Backspace.");
+    }
     ImGui::End();
     ImGui::PopStyleColor();
 }

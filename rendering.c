@@ -7,8 +7,11 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-extern Camera camera;          // defined in main.c
-extern SDL_Renderer *renderer; // defined in main.c
+// defined in main.c
+extern Camera camera;          
+extern SDL_Renderer *renderer;
+extern int win_width;
+extern int win_height;
 
 // Draw a line with integer thickness by drawing several parallel lines.
 void draw_line_thickness(int x1, int y1, int x2, int y2, int thickness)
@@ -57,14 +60,13 @@ void draw_crosshair(int thickness, int size)
         size += 1;
     }
 
-    int cx = WIDTH / 2;
-    int cy = HEIGHT / 2;
+    int cx = win_width / 2;
+    int cy = win_height / 2;
     int half = size / 2;
-    int t_half = thickness / 2;
 
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-    draw_line_thickness(cx - half, cy, cx + half, cy, thickness);
-    draw_line_thickness(cx, cy - half, cx, cy + half, thickness);
+    draw_line_thickness(cx - half, cy, cx+half, cy, thickness);
+    draw_line_thickness(cx, cy - half, cx, cy+half, thickness);
 }
 
 // Compute the 8 cube points in camera space after applying camera translation + yaw/pitch rotation.
@@ -96,10 +98,11 @@ void compute_camera_points(const Cube *cube, Camera_Point out[8]) {
 
 // Project a camera space point to screen space.
 Projected_Point project_to_screen(const Camera_Point *p) {
-    float x_ndc = (p->x * camera.focal_length / ASPECT_RATIO) / p->z;
+    float aspect_ratio = (float)win_width / (float)win_height;
+    float x_ndc = (p->x * camera.focal_length / aspect_ratio) / p->z;
     float y_ndc = (p->y * camera.focal_length) / p->z;
-    float sx = (x_ndc + 1.0f) * 0.5f * WIDTH;
-    float sy = (1.0f - (y_ndc + 1.0f) * 0.5f) * HEIGHT;
+    float sx = (x_ndc + 1.0f) * 0.5f * win_width;
+    float sy = (1.0f - (y_ndc + 1.0f) * 0.5f) * win_height;
     return (Projected_Point){.x = sx, .y = sy};
 }
 
@@ -154,9 +157,9 @@ bool polygon_completely_offscreen(const Projected_Point* pts, size_t count) {
 
     for (size_t i = 0; i < count; ++i) {
         all_left = all_left && (pts[i].x < 0.0f);
-        all_right = all_right && (pts[i].x > (float)WIDTH);
+        all_right = all_right && (pts[i].x > (float)win_width);
         all_top = all_top && (pts[i].y < 0.0f);
-        all_bottom = all_bottom && (pts[i].y > (float)HEIGHT);
+        all_bottom = all_bottom && (pts[i].y > (float)win_height);
     }
 
     return all_left || all_right || all_top || all_bottom;

@@ -26,10 +26,15 @@ Camera camera = {
 // Globals for SDL
 SDL_Renderer* renderer = NULL;
 static SDL_Window* window = NULL;
+static bool is_fullscreen = false;
+int win_width = 0;
+int win_height = 0;
+bool show_controls_in_overlay = false;
 
 // Function prototypes
 bool init();
 void create_ground_grid(Cube_Map* map, int size, int x, int y, int z, SDL_Color color, int hole_size);
+void get_fullscreen_res(int* win_width, int* win_height);
 
 // Main function
 int main(int argc, char** argv) {
@@ -108,11 +113,32 @@ int main(int argc, char** argv) {
                     running = false;
                     break;
                 case SDL_KEYDOWN: {
+                    // Alt+Enter: toggle fullscreen (borderless desktop) and restore previous windowed geometry
+                    if (event.key.keysym.sym == SDLK_RETURN && (event.key.keysym.mod & KMOD_ALT)) {
+                        if (!is_fullscreen) {
+                            SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+                            get_fullscreen_res(&win_width, &win_height);
+                            is_fullscreen = true;
+                        } else {
+                            SDL_SetWindowFullscreen(window, 0);
+                            SDL_SetWindowBordered(window, SDL_TRUE);
+                            SDL_SetWindowSize(window, WIDTH, HEIGHT);
+                            SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+                            SDL_RestoreWindow(window);
+                            win_width = WIDTH;
+                            win_height = HEIGHT;
+                            is_fullscreen = false;
+                        }
+                    }
                     // Toggle mouse capture with Esc key
                     if (event.key.keysym.sym == SDLK_ESCAPE) {
                         mouse_captured = !mouse_captured;
                         SDL_SetRelativeMouseMode(mouse_captured ? SDL_TRUE : SDL_FALSE);
                         SDL_ShowCursor(mouse_captured ? SDL_DISABLE : SDL_ENABLE);
+                    }
+                    // Toggle control help in overlay with Backspace
+                    if (event.key.keysym.sym == SDLK_BACKSPACE) {
+                        show_controls_in_overlay = !show_controls_in_overlay;
                     }
                     break;
                 }
@@ -396,7 +422,7 @@ int main(int argc, char** argv) {
 
         // ImGui overlay: update stats, start a new frame, let it draw UI, then render on top
         if (OVERLAY_ON) {
-            overlay_set_stats(camera.x, camera.y, camera.z, camera.yaw, camera.pitch, fov_display, cubes.size, cube_map_capacity(&cubes));
+            overlay_set_stats(camera.x, camera.y, camera.z, camera.yaw, camera.pitch, fov_display, cubes.size, cube_map_capacity(&cubes), win_width, win_height);
         }
         overlay_newframe();
         overlay_render();
@@ -440,6 +466,7 @@ bool init() {
         SDL_Quit();
         return false;
     }
+    SDL_GetWindowSize(window, &win_width, &win_height);
 
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     if (!renderer) {
@@ -457,8 +484,7 @@ bool init() {
     return true;
 }
 
-// Creates a grid of cubes centered around (x, y, z) in world coordinates, with the specified size and color.
-// Optionally leaves a hole in the middle.
+// Helper function to create a grid of cubes centered around (x, y, z) in world coordinates, with the specified size and color.
 void create_ground_grid(Cube_Map* map, int size, int x, int y, int z, SDL_Color color, int hole_size) {
     const float GRID_OFFSET_X = ((size - 1) * CUBE_SIZE) / 2.0f;
     const float GRID_OFFSET_Z = ((size - 1) * CUBE_SIZE) / 2.0f;
@@ -493,5 +519,17 @@ void create_ground_grid(Cube_Map* map, int size, int x, int y, int z, SDL_Color 
             .z = world_to_grid_coord(center.z, CUBE_SIZE, GRID_OFFSET_Z)
         };
         cube_map_add(map, key, new_cube);
+    }
+}
+
+// Helper function to get the desktop resolution for fullscreen mode
+void get_fullscreen_res(int* win_width, int* win_height) {
+    SDL_DisplayMode dm;
+    if (SDL_GetDesktopDisplayMode(0, &dm) != 0) {
+        printf("SDL_GetDesktopDisplayMode failed: %s\n", SDL_GetError());
+        exit(EXIT_FAILURE);
+    } else {
+        *win_width = dm.w;
+        *win_height = dm.h;
     }
 }
