@@ -4,8 +4,13 @@
 // Global consts for window dimensions and frame rate
 const int WIDTH = 1600;
 const int HEIGHT = 900;
-const int TARGET_FPS = 240;
+// Target FPS: 0 for uncapped, otherwise max FPS (e.g. 60)
+#define TARGET_FPS 0
+#if TARGET_FPS > 0
 const uint32_t FRAME_DELAY = (1000u / TARGET_FPS);
+#else
+const uint32_t FRAME_DELAY = 0;
+#endif
 
 // Global consts for stats overlay
 const bool OVERLAY_ON = true;

@@ -40,10 +40,17 @@ Then, finally, build and run:
 
 ## Controls
 
-- WASD: movement
-- Left-shift (hold): sprint
-- Space: jump
-- Esc: toggle cursor capture on/off
+- WASD to move
+
+- Mouse to look around
+
+- Left shift to sprint
+
+- Space to jump
+
+- Esc to toggle mouse capture
+
+- Alt+Enter to toggle fullscreen
 
 ## License
 

@@ -6,7 +6,6 @@
 // Global consts for window dimensions and frame rate
 extern const int WIDTH;
 extern const int HEIGHT;
-extern const int TARGET_FPS;
 extern const uint32_t FRAME_DELAY;
 
 // Global consts for stats overlay

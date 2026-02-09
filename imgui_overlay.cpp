@@ -8,11 +8,13 @@
 #include "imgui/imgui.h"
 #include "imgui/backends/imgui_impl_sdl2.h"
 #include "imgui/backends/imgui_impl_sdlrenderer2.h"
+#include "settings.h"
 
 extern "C" {
 
 extern bool show_controls_in_overlay; // defined in main.c
 static SDL_Renderer* aux_renderer = nullptr;
+const char* fps_cap = (FRAME_DELAY > 0) ? "" : "uncapped";
 
 struct Overlay_Stats {
     int fps;
@@ -84,7 +86,7 @@ void overlay_newframe() {
     ImGui::SetNextWindowPos(ImVec2(10,10), ImGuiCond_Always);
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.8f));
     ImGui::Begin("Overlay", NULL, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove /*| ImGuiWindowFlags_NoTitleBar*/);
-    ImGui::Text("FPS: %.1f (%.2f ms)", ImGui::GetIO().Framerate, 1000.0f / ImGui::GetIO().Framerate);
+    ImGui::Text("FPS: %.1f (%.2f ms) %s", ImGui::GetIO().Framerate, 1000.0f / ImGui::GetIO().Framerate, fps_cap);
     ImGui::Text("Cam. Pos.: (x:%.2f, y:%.2f, z:%.2f)", stats.x, stats.y, stats.z);
     ImGui::Text("Cam. View: (yaw:%.1f, pitch:%.1f, fov:%.1f)", stats.yaw, stats.pitch, stats.fov);
     ImGui::Text("Cube Map: (cubes:%zu, size:%zu)", stats.cube_count, stats.map_capacity);
