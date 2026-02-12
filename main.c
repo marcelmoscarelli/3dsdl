@@ -34,6 +34,7 @@ bool show_controls_in_overlay = false;
 // Function prototypes
 bool init();
 void create_ground_grid(Cube_Map* map, int size, int x, int y, int z, SDL_Color color, int hole_size);
+void create_cloud_blob(Cube_Map* map, int x, int y, int z, SDL_Color color);
 void get_fullscreen_res(int* win_width, int* win_height);
 
 // Main function
@@ -54,14 +55,26 @@ int main(int argc, char** argv) {
     
     // Ground grid parameters (just as an example until maps start being used)
     const int GROUND_SIZE = 9;
+    const int GROUND_ALPHA = 48;
     const float GRID_OFFSET_X = ((GROUND_SIZE - 1) * CUBE_SIZE) / 2.0f;
     const float GRID_OFFSET_Z = ((GROUND_SIZE - 1) * CUBE_SIZE) / 2.0f;
     const float GRID_OFFSET_Y = CUBE_SIZE * 0.5f;
-    create_ground_grid(&cubes, GROUND_SIZE, 0, 0, 0, (SDL_Color){255, 255, 0, 255}, 0); // Yellow
-    create_ground_grid(&cubes, GROUND_SIZE, 0, 2, GROUND_SIZE, (SDL_Color){0, 255, 0, 255}, 1); // Green
-    create_ground_grid(&cubes, GROUND_SIZE, GROUND_SIZE, 4, GROUND_SIZE, (SDL_Color){0, 255, 255, 255}, 3); // Cyan
-    create_ground_grid(&cubes, GROUND_SIZE, GROUND_SIZE, 6, 0, (SDL_Color){255, 0, 255, 255}, 5); // Magenta
-    create_ground_grid(&cubes, GROUND_SIZE, 0, 8, 0, (SDL_Color){255, 255, 255, 255}, 7); // White
+    create_ground_grid(&cubes, GROUND_SIZE, 0, 0, 0, (SDL_Color){255, 255, 0, GROUND_ALPHA}, 0); // Yellow
+    create_ground_grid(&cubes, GROUND_SIZE, 0, 2, GROUND_SIZE, (SDL_Color){0, 255, 0, GROUND_ALPHA}, 5); // Green
+    create_ground_grid(&cubes, GROUND_SIZE, GROUND_SIZE, 4, GROUND_SIZE, (SDL_Color){0, 255, 255, GROUND_ALPHA}, 5); // Cyan
+    create_ground_grid(&cubes, GROUND_SIZE, GROUND_SIZE, 6, 0, (SDL_Color){255, 0, 255, GROUND_ALPHA}, 7); // Magenta
+    create_ground_grid(&cubes, GROUND_SIZE, 0, 8, 0, (SDL_Color){255, 0, 0, GROUND_ALPHA}, 7); // Red
+
+    // Adding a few clouds
+    const int CLOUD_ALTITUDE = 25;
+    const int CLOUD_ALTITUDE_VARIANCE = 10;
+    const int CLOUD_COUNT = 50;
+    for (size_t i = 0; i < CLOUD_COUNT; ++i) {
+        int cx = (rand() % 200) - 100;
+        int cz = (rand() % 200) - 100;
+        int cy = CLOUD_ALTITUDE + (rand() % (2 * CLOUD_ALTITUDE_VARIANCE + 1)) - CLOUD_ALTITUDE_VARIANCE;
+        create_cloud_blob(&cubes, cx, cy, cz, (SDL_Color){255, 255, 255, 160});
+    }
 
     // Camera parameters
     float fov_display = 60.0f;
@@ -296,6 +309,10 @@ int main(int argc, char** argv) {
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         SDL_RenderClear(renderer);
 
+        // Sky background and fake ground (will be replaced by actual cubes later)
+        render_sky();
+        render_ground_placeholder();
+
         // Build and draw all cube faces using Painter's Sorting
         // TODO: Backface culling to skip faces that are facing away from the camera
         size_t max_faces = cubes.size * 6;
@@ -355,9 +372,7 @@ int main(int argc, char** argv) {
                 face->depth = depth_sum / (float)clipped_count;
 
                 SDL_Color c = entry->cube->color;
-                //SDL_Color c = (SDL_Color){ 0, 0, 0, 255 };
                 face->color = entry->cube->color;
-                c.a = 32;
                 for (size_t tri = 1; tri + 1 < clipped_count; ++tri) {
                     size_t vbase = face->vert_count;
                     face->verts[vbase + 0] = (SDL_Vertex){ .position = {projected[0].x, projected[0].y}, .color = c, .tex_coord = {0.0f, 0.0f} };
@@ -398,7 +413,7 @@ int main(int argc, char** argv) {
             SDL_RenderGeometry(renderer, NULL, tri_verts, (int)total_verts, NULL, 0);
         }
 
-        // Draw face outlines on top of filled faces for better visibility, also in Painter's order
+        //Draw face outlines on top of filled faces for better visibility, also in Painter's order
         for (size_t i = 0; i < face_count; ++i) {
             Render_Face* face = &faces[i];
             if (face->line_count < 2) {
@@ -531,5 +546,56 @@ void get_fullscreen_res(int* win_width, int* win_height) {
     } else {
         *win_width = dm.w;
         *win_height = dm.h;
+    }
+}
+
+// Helper function to create a small cloud-like blob of cubes (3x6) with trimmed edges.
+void create_cloud_blob(Cube_Map* map, int x, int y, int z, SDL_Color color) {
+    const int size_x = 3;
+    const int size_z = 6;
+    const float GRID_OFFSET_X = ((size_x - 1) * CUBE_SIZE) / 2.0f;
+    const float GRID_OFFSET_Z = ((size_z - 1) * CUBE_SIZE) / 2.0f;
+    const float GRID_OFFSET_Y = CUBE_SIZE * 0.5f;
+
+    for (int gx = 0; gx < size_x; ++gx) {
+        for (int gz = 0; gz < size_z; ++gz) {
+            // Trim corners and add a little randomness so each cloud varies.
+            bool skip = false;
+            bool is_corner = (gx == 0 || gx == size_x - 1) && (gz == 0 || gz == size_z - 1);
+            bool is_edge = (gx == 0 || gx == size_x - 1 || gz == 0 || gz == size_z - 1);
+
+            if (is_corner) {
+                skip = true;
+            } else if (is_edge) {
+                // Randomly skip some edge cubes to break the rectangle silhouette.
+                if ((rand() % 100) < 35) {
+                    skip = true;
+                }
+            } else {
+                // Small chance to create a soft interior notch.
+                if ((rand() % 100) < 8) {
+                    skip = true;
+                }
+            }
+
+            if (skip) {
+                continue;
+            }
+
+            Point_3D center = {
+                .x = x * CUBE_SIZE + gx * CUBE_SIZE - GRID_OFFSET_X,
+                .y = y * CUBE_SIZE - GRID_OFFSET_Y,
+                .z = z * CUBE_SIZE + gz * CUBE_SIZE - GRID_OFFSET_Z
+            };
+            Cube* new_cube = (Cube*)malloc(sizeof(Cube));
+            make_cube(new_cube, CUBE_SIZE, center, color);
+
+            Cube_Key key = {
+                .x = world_to_grid_coord(center.x, CUBE_SIZE, GRID_OFFSET_X),
+                .y = world_to_grid_coord(center.y, CUBE_SIZE, GRID_OFFSET_Y),
+                .z = world_to_grid_coord(center.z, CUBE_SIZE, GRID_OFFSET_Z)
+            };
+            cube_map_add(map, key, new_cube);
+        }
     }
 }

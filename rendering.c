@@ -13,6 +13,75 @@ extern SDL_Renderer *renderer;
 extern int win_width;
 extern int win_height;
 
+// Helper function to clamp a float value between a minimum and maximum.
+static float clampf(float v, float lo, float hi) {
+    if (v < lo) {
+        return lo;
+    }
+    if (v > hi) {
+        return hi;
+    }
+    return v;
+}
+
+static int get_horizon_y(void) {
+    float pitch_rad = -camera.pitch * (M_PI / 180.0f);
+    float y_ndc = tanf(pitch_rad) * camera.focal_length;
+    float horizon_f = (0.5f + 0.5f * y_ndc) * (float)win_height;
+    horizon_f = clampf(horizon_f, 0.0f, (float)win_height);
+    return (int)SDL_roundf(horizon_f);
+}
+
+// Render a simple sky gradient above the horizon only.
+void render_sky(void)
+{
+    if (!renderer || win_width <= 0 || win_height <= 0) {
+        return;
+    }
+
+    int horizon_y = get_horizon_y();
+
+    SDL_Color top = { 8, 35, 95, 255 };
+    SDL_Color near_horizon = { 95, 120, 150, 255 };
+
+    if (horizon_y > 0) {
+        SDL_Vertex verts[4] = {
+            { .position = { 0.0f, 0.0f }, .color = top, .tex_coord = {0.0f, 0.0f} },
+            { .position = { (float)win_width, 0.0f }, .color = top, .tex_coord = {0.0f, 0.0f} },
+            { .position = { (float)win_width, (float)horizon_y }, .color = near_horizon, .tex_coord = {0.0f, 0.0f} },
+            { .position = { 0.0f, (float)horizon_y }, .color = near_horizon, .tex_coord = {0.0f, 0.0f} }
+        };
+        int indices[6] = { 0, 1, 2, 0, 2, 3 };
+        SDL_RenderGeometry(renderer, NULL, verts, 4, indices, 6);
+    }
+
+}
+
+// Render a simple ground gradient below the horizon only.
+void render_ground_placeholder(void)
+{
+    if (!renderer || win_width <= 0 || win_height <= 0) {
+        return;
+    }
+
+    int horizon_y = get_horizon_y();
+    if (horizon_y >= win_height) {
+        return;
+    }
+
+    SDL_Color near_horizon = { 50, 75, 40, 255 };
+    SDL_Color bottom = { 12, 35, 10, 255 };
+
+    SDL_Vertex verts[4] = {
+        { .position = { 0.0f, (float)horizon_y }, .color = near_horizon, .tex_coord = {0.0f, 0.0f} },
+        { .position = { (float)win_width, (float)horizon_y }, .color = near_horizon, .tex_coord = {0.0f, 0.0f} },
+        { .position = { (float)win_width, (float)win_height }, .color = bottom, .tex_coord = {0.0f, 0.0f} },
+        { .position = { 0.0f, (float)win_height }, .color = bottom, .tex_coord = {0.0f, 0.0f} }
+    };
+    int indices[6] = { 0, 1, 2, 0, 2, 3 };
+    SDL_RenderGeometry(renderer, NULL, verts, 4, indices, 6);
+}
+
 // Draw a line with integer thickness by drawing several parallel lines.
 void draw_line_thickness(int x1, int y1, int x2, int y2, int thickness)
 {
