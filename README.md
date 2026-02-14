@@ -2,13 +2,13 @@
 
 ## Description
 
-A basic 3D engine experiment using SDL2 for rendering and Dear ImGui for HUD elements, gorilla-style.
+A 3D engine experiment using SDL2 for rendering and Dear ImGui for HUD elements, gorilla-style.
 
 ## Build & Run
 
 ### Linux
 
-Get the following with your package manager (you probably already have all but one):
+Get the following with your package manager:
 
 - gcc
 
@@ -36,7 +36,7 @@ Get the following:
 Then, finally, build and run:
 
 - `make`
-- Double-click the .exe file..?
+- Double-click the .exe file..? Idk.
 
 ## Controls
 
